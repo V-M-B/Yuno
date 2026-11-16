@@ -10,6 +10,8 @@ changes something people see or feel (faster, fewer errors); then say that.
 
 ## Unreleased
 
+## 1.0.1
+
 ### New
 
 - **Autoplay.** When your queue runs out, a related video plays next, even with the screen off. Turn it off in Settings › Playback.
