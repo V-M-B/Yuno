@@ -482,7 +482,7 @@ private class Autoplayer(
         resolver.execute {
             val next = runCatching {
                 val info = StreamCache.get(endedId) ?: BotCheck.withoutWaiting(endedId) { StreamCache.getOrLoad(endedId) }
-                val pick = YouTube.related(info).firstOrNull { it.id !in skip } ?: return@runCatching null
+                val pick = pickNext(endedId, info, skip) ?: return@runCatching null
                 // Loaded here, so the media source has its streams the moment it's added.
                 val nextInfo = BotCheck.withoutWaiting(pick.id) { StreamCache.getOrLoad(pick.id) }
                 pick to nextInfo
@@ -501,8 +501,8 @@ private class Autoplayer(
                         .setUri(YouTube.watchUrl(item.id))
                         .setMediaMetadata(
                             MediaMetadata.Builder()
-                                .setTitle(item.title)
-                                .setArtist(item.channel)
+                                .setTitle(item.title.ifBlank { info.name })
+                                .setArtist(item.channel.ifBlank { info.uploaderName.orEmpty() })
                                 .setArtworkUri(item.thumbnail?.let(Uri::parse))
                                 .setDurationMs(info.duration.takeIf { it > 0 }?.times(1000))
                                 .setMediaType(MediaMetadata.MEDIA_TYPE_VIDEO)
@@ -515,6 +515,24 @@ private class Autoplayer(
                 player.play()
             }
         }
+    }
+
+    /**
+     * Signed in: what YouTube would play next for the account (a song's Mix, else its autoplay
+     * pick and related list), so autoplay follows your listening and likes. Otherwise, or if that
+     * fails, NewPipe's related list.
+     */
+    private fun pickNext(endedId: String, info: org.schabi.newpipe.extractor.stream.StreamInfo, skip: Set<String>): VideoItem? {
+        if (Account.signedIn) {
+            runCatching {
+                val music = YouTube.isMusic(info)
+                InnerTube.personalUpNext(endedId, music).inOrder.firstOrNull { it.id !in skip }
+                    ?.also { Log.i("Yuno", "autoplay pick from the account's ${if (music) "Mix" else "up next"}: ${it.id}") }
+            }
+                .onFailure { Log.w("Yuno", "personal up next for $endedId failed", it) }
+                .getOrNull()?.let { return it }
+        }
+        return YouTube.related(info).firstOrNull { it.id !in skip }
     }
 
     private companion object {

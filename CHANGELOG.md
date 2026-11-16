@@ -10,6 +10,15 @@ changes something people see or feel (faster, fewer errors); then say that.
 
 ## Unreleased
 
+### New
+
+- **Swipe the mini-player.** Swipe it right to close the video, or left to pause and play.
+- **Up next that knows you.** Signed in, songs continue with your own YouTube Mix and other videos with what YouTube would pick for you, in autoplay and under "More videos".
+- **Open YouTube links in Yuno.** Share a YouTube link to Yuno, or pick Yuno under "Open with".
+- **Dislike counts are back**, from Return YouTube Dislike. Turn them off in Settings › Playback.
+- **Loop a video** with the new repeat button on the player.
+- **Quality on mobile data.** Pick a lower quality for when you're off Wi-Fi in Settings › Playback.
+
 ## 1.0.1
 
 ### New

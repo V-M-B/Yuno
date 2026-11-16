@@ -786,7 +786,7 @@ private fun AccountActions(state: PlayerState) {
         ) { state.setLike(LikeStatus.Like) }
         ActionPill(
             icon = if (like == LikeStatus.Dislike) SfIcons.ThumbDownFill else SfIcons.ThumbDown,
-            label = null,
+            label = state.displayDislikes.takeIf { it >= 0 }?.let { formatCount(it) },
             active = like == LikeStatus.Dislike,
             flourish = Flourish.Droop,
             shape = RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp, topEnd = 22.dp, bottomEnd = 22.dp),
@@ -929,7 +929,7 @@ fun MiniPlayer(
                     else -> MiniHeight
                 },
             )
-            .then(if (gestures) Modifier.miniPlayerPullGestures(pull, onDismiss = state::close) else Modifier)
+            .then(if (gestures) Modifier.miniPlayerPullGestures(pull, onDismiss = state::close, onTogglePlay = state::togglePlay) else Modifier)
             .pressable(pressedScale = 0.98f, onClick = onExpand)
             // Liquid glass already clips, and an extra clip layer around it
             // forces another offscreen buffer. That buffer is what the fold
