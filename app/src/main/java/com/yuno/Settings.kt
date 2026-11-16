@@ -239,6 +239,11 @@ private fun AccountRow(search: SettingsSearch, onOpen: (SettingsPage) -> Unit) {
                 onClick = { onOpen(SettingsPage.Account) },
             )
         }
+        val incognitoTitle = stringResource(R.string.settings_incognito_title)
+        val incognitoLine = stringResource(R.string.settings_incognito_line)
+        row(incognitoTitle, incognitoLine, "private", "history", "pause") {
+            ToggleRow(SfIcons.VisibilityOff, incognitoTitle, incognitoLine, Incognito.on) { Incognito.set(it) }
+        }
     }
 }
 

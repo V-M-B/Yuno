@@ -754,6 +754,44 @@ private fun PlayerActions(state: PlayerState) {
             shape = RoundedCornerShape(22.dp),
             description = "Share",
         ) { item?.let { shareLink(context, "https://youtu.be/${it.id}", it.title) } }
+        if (item != null) DownloadAction(state, item)
+    }
+}
+
+/** Download: picks a quality, then shows progress; "Downloaded" once it's on the phone. */
+@Composable
+private fun DownloadAction(state: PlayerState, item: VideoItem) {
+    val d = Downloads.get(item.id)
+    var choosing by remember { mutableStateOf(false) }
+    Box {
+        ActionPill(
+            icon = SfIcons.Download,
+            label = when {
+                d == null -> "Download"
+                d.done -> "Downloaded"
+                d.active -> "${(d.progress * 100).toInt()}%"
+                else -> "Retry"
+            },
+            active = d?.done == true,
+            flourish = null,
+            shape = RoundedCornerShape(22.dp),
+            description = "Download",
+        ) {
+            when {
+                d == null -> choosing = true
+                d.done -> state.actionMessage = "Saved on this phone: Library › Downloads"
+                d.active -> state.actionMessage = "Downloading…"
+                else -> Downloads.retry(item.id)
+            }
+        }
+        androidx.compose.material3.DropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }) {
+            DownloadQuality.entries.forEach { q ->
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text(q.label) },
+                    onClick = { choosing = false; state.download(item, q) },
+                )
+            }
+        }
     }
 }
 

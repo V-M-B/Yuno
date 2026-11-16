@@ -15,6 +15,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.Image
 import org.schabi.newpipe.extractor.MediaFormat
+import org.schabi.newpipe.extractor.Page
 import org.schabi.newpipe.extractor.channel.ChannelInfo
 import org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo
 import org.schabi.newpipe.extractor.channel.tabs.ChannelTabs
@@ -26,7 +27,7 @@ import org.schabi.newpipe.extractor.exceptions.GeographicRestrictionException
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
 import org.schabi.newpipe.extractor.search.SearchInfo
-import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
+import org.schabi.newpipe.extractor.linkhandler.SearchQueryHandler
 import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.AudioTrackType
 import org.schabi.newpipe.extractor.stream.DeliveryMethod
@@ -174,11 +175,43 @@ object YouTube {
 
     fun watchUrl(id: String) = "https://www.youtube.com/watch?v=$id"
 
-    suspend fun search(query: String): List<VideoItem> = withContext(Dispatchers.IO) {
-        val handler = service.searchQHFactory.fromQuery(query, listOf(YoutubeSearchQueryHandlerFactory.VIDEOS), "")
-        SearchInfo.getInfo(service, handler).relatedItems
-            .filterIsInstance<StreamInfoItem>()
-            .mapNotNull { it.toVideoItem() }
+    /** One page of search results; [more] fetches the next one (null at the end). */
+    class SearchPage(
+        val videos: List<VideoItem>,
+        /** YouTube's "Did you mean" spelling, when it has one. */
+        val didYouMean: String?,
+        internal val handler: SearchQueryHandler,
+        internal val next: Page?,
+    ) {
+        val hasMore get() = next != null
+    }
+
+    /**
+     * Searches like youtube.com does: with no "videos only" filter. That filter turns off YouTube's
+     * spelling fixes, so a misspelt query ("orada ovta tamil song") found nothing at all; unfiltered,
+     * YouTube still finds the song. Channels, playlists and Shorts shelves are dropped here.
+     */
+    suspend fun search(query: String): SearchPage = withContext(Dispatchers.IO) {
+        val handler = service.searchQHFactory.fromQuery(query, emptyList(), "")
+        val info = SearchInfo.getInfo(service, handler)
+        SearchPage(
+            videos = info.relatedItems.filterIsInstance<StreamInfoItem>().mapNotNull { it.toVideoItem() },
+            didYouMean = info.searchSuggestion?.takeIf { it.isNotBlank() && !it.equals(query.trim(), ignoreCase = true) },
+            handler = handler,
+            next = info.nextPage?.takeIf { Page.isValid(it) },
+        )
+    }
+
+    /** The page after [page], or null when there is none. */
+    suspend fun searchMore(page: SearchPage): SearchPage? = withContext(Dispatchers.IO) {
+        val next = page.next ?: return@withContext null
+        val more = SearchInfo.getMoreItems(service, page.handler, next)
+        SearchPage(
+            videos = more.items.filterIsInstance<StreamInfoItem>().mapNotNull { it.toVideoItem() },
+            didYouMean = page.didYouMean,
+            handler = page.handler,
+            next = more.nextPage?.takeIf { Page.isValid(it) },
+        )
     }
 
     suspend fun searchSuggestions(query: String): List<String> = withContext(Dispatchers.IO) {

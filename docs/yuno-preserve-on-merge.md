@@ -49,6 +49,9 @@ On a later Skipii merge, ask only if that update **conflicts with or rewrites** 
 - Loop button on the video (`OverlayTile` before Audio only in `VideoView.kt`, `PlayerState.toggleLoop`): repeat-one for the open video, turned off when another video opens.
 - Quality on mobile data (`QualityPreference.mobile` in `YouTube.kt`, row in Settings › Playback): Same · Auto · 360p · 480p · 720p; the quality sheet's pick is kept for the network it was made on.
 - Signed in, "More videos" and autoplay come from the account (`InnerTube.personalUpNext` in `Account.kt`, used by `PlayerState.loadPersonalRelated` and `Autoplayer.pickNext`): a song gets the account's Mix (`RD` + id), other videos YouTube's own signed-in up next; NewPipe's related list is the fallback.
+- Search without the "videos only" filter (`YouTube.search` / `searchMore`, `SearchState` in `Screens.kt`): YouTube still finds misspelt queries, more results load on scroll, and its "Did you mean" shows above the results. NewPipe gets the phone's country (`YunoApplication`); the language stays English.
+- Playlist page (`PlaylistScreen` in `Screens.kt`, `PlaylistView.kt`, `PlayerState.playAll`, `FeedState.loadAll`): Play all and Shuffle buttons; sort chips (Playlist order, Most popular, Newest, Oldest) and Videos / Shorts filters over the whole playlist; a tapped video plays on through the rest of the playlist.
+- Downloads and Incognito (`Downloads.kt` with `DownloadService`, offline paths in `YouTubeMediaSourceFactory`, `SessionCallback.onAddMediaItems` and `PlayerState.show`; `Incognito` in `PlaybackModes.kt`): save a video (Audio only / 360p / 720p / 1080p) from the player's Download pill or the long-press menu, play it with no connection from Library › Downloads; Incognito (Settings, Library banner) stops watch-time pings and Yuno's watch and search history.
 
 ## Ask on each merge
 

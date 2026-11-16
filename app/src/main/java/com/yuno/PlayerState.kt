@@ -233,6 +233,9 @@ class PlayerState(private val scope: CoroutineScope) {
             }
         }
         loadJob?.cancel()
+        // Downloaded: play the saved files now; the details below still load when there's a connection.
+        val offline = startPlayback && Downloads.files(item.id) != null
+        if (offline) startPlayback(Downloads.get(item.id)?.item ?: item)
         loadJob = scope.launch {
             runCatching { YouTube.details(item.id) }
                 .onSuccess { d ->
@@ -251,7 +254,7 @@ class PlayerState(private val scope: CoroutineScope) {
                     // Refresh the history row with title/thumb/duration from details.
                     WatchHistory.record(d.item)
                     if (!d.playable) error = "No playable stream was found for this video."
-                    else if (startPlayback) startPlayback(d.item)
+                    else if (startPlayback && !offline) startPlayback(d.item)
                 }
                 .onFailure {
                     // Cancelled by the next open (a bot-check wait can last ~40 s): this
@@ -259,7 +262,8 @@ class PlayerState(private val scope: CoroutineScope) {
                     if (it is CancellationException) throw it
                     Log.w(TAG, "details failed for ${item.id}", it)
                     botCheck = it is org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
-                    error = YouTube.friendlyError(it)
+                    // Playing a download with no connection: nothing went wrong for the viewer.
+                    if (!offline) error = YouTube.friendlyError(it) else botCheck = false
                     // Comments wait for details; without this their spinner never stopped.
                     comments.load(item.id)
                 }
@@ -297,7 +301,36 @@ class PlayerState(private val scope: CoroutineScope) {
         val player = controller ?: run { pendingStart = item; return }
         // Pick up where this video was left off (ResumeStore; written by the service).
         replaceCurrent(player, item, positionMs = ResumeStore.startPosition(item.id))
+        // Play all / Shuffle: the rest of the playlist replaces the queue once its first video is in.
+        playlistQueue?.takeIf { it.first == item.id }?.let { (_, rest) ->
+            playlistQueue = null
+            val after = player.currentMediaItemIndex + 1
+            if (player.mediaItemCount > after) player.removeMediaItems(after, player.mediaItemCount)
+            player.addMediaItems(rest.map(::mediaItemFor))
+        }
         player.play()
+    }
+
+    /** Saves [item] on the phone to watch offline (Library › Downloads). */
+    fun download(item: VideoItem, quality: DownloadQuality) {
+        Downloads.start(item, quality)
+        actionMessage = "Downloading (${quality.label})"
+    }
+
+    /** The videos to queue behind a playlist's first one, keyed by that first video's id. */
+    private var playlistQueue: Pair<String, List<VideoItem>>? = null
+
+    /** Plays [items] in order from the first, in place of the queue (a playlist's Play all / Shuffle). */
+    fun playAll(items: List<VideoItem>) {
+        val first = items.firstOrNull() ?: return
+        items.forEach { known[it.id] = it }
+        playlistQueue = first.id to items.drop(1)
+        if (current?.id == first.id && error == null) {
+            // Already the current video: open() would do nothing, so set the queue here.
+            current = null
+        }
+        open(first)
+        actionMessage = if (items.size > 1) "Playing ${items.size} videos" else null
     }
 
     /**

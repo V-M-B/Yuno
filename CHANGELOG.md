@@ -10,6 +10,18 @@ changes something people see or feel (faster, fewer errors); then say that.
 
 ## Unreleased
 
+### New
+- **Downloads:** save a video (or just its sound) to watch with no internet. Tap Download under the video, or long-press any video. They are in Library › Downloads.
+- **Incognito:** a switch in Settings. While it's on, nothing you watch or search goes into your YouTube or Yuno history.
+- Playlists have **Play all** and **Shuffle**, like the YouTube app.
+- Sort a playlist by Most popular, Newest or Oldest, and show only its Videos or Shorts.
+- Tapping a video in a playlist keeps playing the rest of the playlist after it.
+
+### Fixed
+- Search finds songs and videos even when the name is misspelt ("orada ovta tamil song" used to show nothing), and shows YouTube's "Did you mean".
+- Search results keep loading as you scroll, instead of stopping after the first few.
+- Search and suggestions are ranked for your country.
+
 ## 1.0.2
 
 ### New

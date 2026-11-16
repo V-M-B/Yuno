@@ -344,7 +344,7 @@ object InnerTube {
         val page = parseFeed(postAny("search", body))
         if (page.videos.isNotEmpty() || next != null) return@withContext page
         // NewPipe search as a last resort (same path as the Search tab).
-        val videos = YouTube.search(GUEST_HOME_QUERY)
+        val videos = YouTube.search(GUEST_HOME_QUERY).videos
         if (videos.isEmpty()) throw IOException("Couldn't load recommendations.")
         FeedPage(videos, null)
     }

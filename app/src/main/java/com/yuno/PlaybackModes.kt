@@ -205,6 +205,29 @@ object Autoplay {
 }
 
 /**
+ * Incognito, as in YouTube: nothing watched or searched is kept. No watch time goes to YouTube
+ * (so nothing lands in the account's history), and Yuno's own watch and search history stay as
+ * they were. Likes, subscriptions and saves still go through, as they do in YouTube.
+ */
+object Incognito {
+    private const val KEY = "incognito"
+    private var prefs: SharedPreferences? = null
+
+    var on by mutableStateOf(false)
+        private set
+
+    fun init(context: Context) {
+        prefs = context.getSharedPreferences("playback", Context.MODE_PRIVATE)
+        on = prefs?.getBoolean(KEY, false) == true
+    }
+
+    fun set(value: Boolean) {
+        on = value
+        prefs?.edit()?.putBoolean(KEY, value)?.apply()
+    }
+}
+
+/**
  * Picture-in-picture by itself (#42): leaving the app (Home, Recents, another app) while a video plays
  * turns it into the floating window. Off by default (Derek): background play is audio only then.
  */
