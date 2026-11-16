@@ -190,6 +190,8 @@ class PlayerState(private val scope: CoroutineScope) {
     private var openedAt = 0L
 
     private fun show(item: VideoItem, startPlayback: Boolean) {
+        // Loop belongs to one video: the next one plays through (and lets the queue or autoplay go on).
+        if (current?.id != item.id) controller?.let { if (it.repeatMode != Player.REPEAT_MODE_OFF) it.repeatMode = Player.REPEAT_MODE_OFF }
         // Drop the video already on screen before its replacement has anything to show.
         if (startPlayback && current != null && current?.id != item.id) {
             blankUntilFrame = true
@@ -211,6 +213,13 @@ class PlayerState(private val scope: CoroutineScope) {
         loading = true
         sheet = null
         comments.clearFor(item.id)
+        rydDislikes = null
+        if (ReturnDislike.enabled) {
+            scope.launch {
+                val count = ReturnDislike.dislikes(item.id)
+                if (current?.id == item.id) rydDislikes = count
+            }
+        }
         captions.clear()
         accountState = null
         inWatchLater = false
@@ -229,6 +238,9 @@ class PlayerState(private val scope: CoroutineScope) {
                 .onSuccess { d ->
                     Log.i("YunoTime", "details +${android.os.SystemClock.elapsedRealtime() - openedAt}ms")
                     details = d
+                    // Opened from a link or notification with only an id: show the real title, channel and views.
+                    if (current?.id == item.id && current?.title.isNullOrBlank()) current = d.item
+                    if (Account.signedIn) loadPersonalRelated(item.id)
                     captions.useTracks(d.captions)
                     // The player takes the video's shape before its first frame arrives.
                     if (!aspectFromFrames) d.aspect?.let { videoAspect = it }
@@ -252,6 +264,19 @@ class PlayerState(private val scope: CoroutineScope) {
                     comments.load(item.id)
                 }
             loading = false
+        }
+    }
+
+    /** Swaps NewPipe's signed-out related list for the account's own up next (or a song's Mix). */
+    private fun loadPersonalRelated(id: String) {
+        scope.launch {
+            val music = StreamCache.get(id)?.let(YouTube::isMusic) == true
+            val related = runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { InnerTube.personalUpNext(id, music).related }
+            }.onFailure { if (it is CancellationException) throw it; Log.w(TAG, "personal up next for $id", it) }.getOrNull()
+            Log.i(TAG, "personal up next for $id (${if (music) "song: Mix" else "video"}): ${related?.size ?: 0} videos, first ${related?.take(3)?.joinToString { it.title.take(40) }}")
+            val d = details
+            if (!related.isNullOrEmpty() && d != null && d.item.id == id && current?.id == id) details = d.copy(related = related)
         }
     }
 
@@ -411,6 +436,34 @@ class PlayerState(private val scope: CoroutineScope) {
                 .onSuccess { if (current?.id == item.id) { accountState = it; originalLike = it.like } }
                 .onFailure { Log.w(TAG, "account state for ${item.id}", it) }
         }
+    }
+
+    /** Return YouTube Dislike's count for the open video; null while loading, off or unknown. */
+    var rydDislikes by mutableStateOf<Long?>(null)
+        private set
+
+    /** Dislike count (Return YouTube Dislike) adjusted for the user's own change; -1 when unknown. */
+    val displayDislikes: Long
+        get() {
+            if (!ReturnDislike.enabled) return -1
+            val base = rydDislikes ?: return -1
+            val now = accountState?.like ?: return base
+            return (base + when {
+                now == LikeStatus.Dislike && originalLike != LikeStatus.Dislike -> 1
+                now != LikeStatus.Dislike && originalLike == LikeStatus.Dislike -> -1
+                else -> 0
+            }).coerceAtLeast(0)
+        }
+
+    /** The open video plays again from the start when it ends (the player's repeat-one). */
+    var looping by mutableStateOf(false)
+        private set
+
+    fun toggleLoop() {
+        val player = controller ?: return
+        player.repeatMode = if (player.repeatMode == Player.REPEAT_MODE_ONE) Player.REPEAT_MODE_OFF else Player.REPEAT_MODE_ONE
+        looping = player.repeatMode == Player.REPEAT_MODE_ONE
+        actionMessage = if (looping) str(R.string.video_loop_on) else str(R.string.video_loop_off)
     }
 
     /** Like count adjusted for the user's own change since the video opened. */
@@ -852,6 +905,7 @@ class PlayerState(private val scope: CoroutineScope) {
         bufferedMs = player.bufferedPosition.coerceAtLeast(0L)
         durationMs = player.duration.takeIf { it > 0 } ?: ((current?.durationSec ?: 0L) * 1000L)
         speed = player.playbackParameters.speed
+        looping = player.repeatMode == Player.REPEAT_MODE_ONE
         applyVideoTrack()
     }
 

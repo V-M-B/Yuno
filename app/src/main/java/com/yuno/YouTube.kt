@@ -480,21 +480,51 @@ object BotCheck {
  */
 object QualityPreference {
     private const val KEY = "quality_height"
+    private const val KEY_MOBILE = "quality_height_mobile"
+    /** [mobile]'s value for "follow the Wi-Fi choice". */
+    const val SAME_AS_WIFI = -1
     private var prefs: SharedPreferences? = null
+    private var connectivity: android.net.ConnectivityManager? = null
 
     @Volatile
-    var height: Int? = null
+    private var wifiHeight: Int? = null
+
+    /**
+     * Quality on mobile data (Settings › Playback): [SAME_AS_WIFI], 0 for Auto, or a height.
+     * Saves a data plan, as ReVanced's separate Wi-Fi / mobile default quality does.
+     */
+    var mobile by androidx.compose.runtime.mutableIntStateOf(SAME_AS_WIFI)
         private set
+
+    /** The chosen height for the network the phone is on now; null is Auto. */
+    val height: Int?
+        get() = if (onMobileData() && mobile != SAME_AS_WIFI) mobile.takeIf { it > 0 } else wifiHeight
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences("playback", Context.MODE_PRIVATE)
-        height = prefs?.getInt(KEY, 0)?.takeIf { it > 0 }?.takeIf { it in QUALITY_LADDER }
+        connectivity = context.getSystemService(android.net.ConnectivityManager::class.java)
+        wifiHeight = prefs?.getInt(KEY, 0)?.takeIf { it > 0 }?.takeIf { it in QUALITY_LADDER }
+        mobile = prefs?.getInt(KEY_MOBILE, SAME_AS_WIFI)
+            ?.takeIf { it == SAME_AS_WIFI || it == 0 || it in QUALITY_LADDER } ?: SAME_AS_WIFI
     }
 
+    /** The quality sheet's pick: kept for the network it was made on. */
     fun set(value: Int?) {
-        height = value
+        if (onMobileData() && mobile != SAME_AS_WIFI) {
+            chooseMobile(value ?: 0)
+            return
+        }
+        wifiHeight = value
         prefs?.edit()?.putInt(KEY, value ?: 0)?.apply()
     }
+
+    fun chooseMobile(value: Int) {
+        mobile = value
+        prefs?.edit()?.putInt(KEY_MOBILE, value)?.apply()
+    }
+
+    /** On a metered network (mobile data, a hotspot); Wi-Fi and Ethernet are not. */
+    private fun onMobileData(): Boolean = connectivity?.isActiveNetworkMetered == true
 }
 
 /** Standard rungs shown in the quality sheet (matches YouTube's labels). */

@@ -37,6 +37,7 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
+import androidx.compose.material.icons.rounded.SignalCellularAlt
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.SystemUpdateAlt
 import androidx.compose.material.icons.rounded.ZoomOutMap
@@ -260,6 +261,26 @@ private fun PlaybackBody(player: PlayerState, search: SettingsSearch) {
         val autoplayLine = stringResource(R.string.settings_autoplay_line)
         row(autoplayTitle, autoplayLine, "up next", "related") {
             ToggleRow(Icons.AutoMirrored.Rounded.PlaylistPlay, autoplayTitle, autoplayLine, Autoplay.on) { Autoplay.set(it) }
+        }
+        val mobileTitle = stringResource(R.string.settings_mobile_quality_title)
+        val mobileLine = stringResource(R.string.settings_mobile_quality_line)
+        row(mobileTitle, mobileLine, "data", "cellular", "wifi") {
+            val values = listOf(QualityPreference.SAME_AS_WIFI, 0, 360, 480, 720)
+                .let { if (QualityPreference.mobile in it) it else it + QualityPreference.mobile }
+            val sameLabel = stringResource(R.string.settings_mobile_quality_same)
+            val autoLabel = stringResource(R.string.video_quality_auto)
+            ChoiceRow(
+                Icons.Rounded.SignalCellularAlt,
+                mobileTitle,
+                mobileLine,
+                values.map { v -> when (v) { QualityPreference.SAME_AS_WIFI -> sameLabel; 0 -> autoLabel; else -> "${v}p" } },
+                values.indexOf(QualityPreference.mobile).coerceAtLeast(0),
+            ) { QualityPreference.chooseMobile(values[it]) }
+        }
+        val dislikesTitle = stringResource(R.string.settings_dislikes_title)
+        val dislikesLine = stringResource(R.string.settings_dislikes_line)
+        row(dislikesTitle, dislikesLine, "return youtube dislike", "ryd") {
+            ToggleRow(SfIcons.ThumbDown, dislikesTitle, dislikesLine, ReturnDislike.enabled) { ReturnDislike.set(it) }
         }
         val chaptersTitle = stringResource(R.string.settings_chapters_open_title)
         val chaptersLine = stringResource(R.string.settings_chapters_open_line)
