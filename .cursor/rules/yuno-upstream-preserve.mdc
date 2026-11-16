@@ -18,7 +18,7 @@ When a Skipii update adds or changes a feature, **port the upstream code** (`com
 | Area | What to protect |
 |------|-----------------|
 | **Branding** | Name **Yuno**, `com.yuno`, launcher/wordmark — never ship Skipii/Castii/`com.skipii` user strings. |
-| **Updates source** | APK checks/downloads **only** from **`danielkanan/Yuno`** (`GITHUB_RELEASES_REPO` / `BuildConfig`). Updater **code** may merge from upstream; release **origin** must stay Yuno. |
+| **Updates source** | APK checks/downloads **only** from **`V-M-B/Yuno`** (`GITHUB_RELEASES_REPO` / `BuildConfig`). Updater **code** may merge from upstream; release **origin** must stay Yuno. |
 | **Colours / appearance** | System · Light · Dark only (`ThemeSettings.mode`). **No** wallpaper colours, named palettes, or theme chip rows. **Do** keep liquid-glass toggle in Settings. |
 | **Settings UX** | Full **Settings page** (`Settings.kt`) — not Skipii’s old account-only settings sheet. No re-adding appearance colour chips. |
 | **Liquid glass nav** | `LiquidGlass.kt`, `floatingtabbar/`, `GlassNav.kt`, glass in `NavBar.kt` — Yuno tab bar + lens motion. |
