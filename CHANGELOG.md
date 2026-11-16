@@ -10,6 +10,8 @@ changes something people see or feel (faster, fewer errors); then say that.
 
 ## Unreleased
 
+## 1.0.3
+
 ### New
 - **Downloads:** save a video (or just its sound) to watch with no internet. Tap Download under the video, or long-press any video. They are in Library › Downloads.
 - **Incognito:** a switch in Settings. While it's on, nothing you watch or search goes into your YouTube or Yuno history.
