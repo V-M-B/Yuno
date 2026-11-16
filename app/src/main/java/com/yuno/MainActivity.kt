@@ -551,6 +551,7 @@ fun YunoApp() {
                         playlistFeeds.getOrPut(pageRoute.ref.id) { lib.playlistFeed(pageRoute.ref.id) },
                         contentPadding,
                         onOpen = player::open,
+                        onPlayAll = player::playAll,
                         channelAvatarSeed = lib.channels.associate { it.id to it.avatar },
                     )
                     is AppRoute.Channel -> ChannelScreen(

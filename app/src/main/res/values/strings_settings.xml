@@ -80,4 +80,6 @@
     <string name="settings_chapters_open_line">Picking a chapter leaves the list open, so you can go from one to the next</string>
     <string name="settings_auto_pip_title">Picture-in-picture when you leave</string>
     <string name="settings_auto_pip_line">Going home while a video plays keeps it playing in a small window</string>
+    <string name="settings_incognito_title">Incognito</string>
+    <string name="settings_incognito_line">Nothing you watch or search is saved to your YouTube or Yuno history</string>
 </resources>

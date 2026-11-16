@@ -176,6 +176,20 @@ class PlaybackService : MediaSessionService() {
             mediaItems: MutableList<MediaItem>,
         ): ListenableFuture<MutableList<MediaItem>> = resolver.submit<MutableList<MediaItem>> {
             mediaItems.map { item ->
+                // Downloaded: everything needed is on the phone (no network, no extraction).
+                Downloads.get(item.mediaId)?.takeIf { it.done }?.let { d ->
+                    return@map item.buildUpon()
+                        .setUri(YouTube.watchUrl(item.mediaId))
+                        .setMediaMetadata(
+                            item.mediaMetadata.buildUpon()
+                                .setTitle(item.mediaMetadata.title ?: d.item.title)
+                                .setArtist(item.mediaMetadata.artist ?: d.item.channel)
+                                .setDurationMs(item.mediaMetadata.durationMs ?: d.item.durationSec.takeIf { it > 0 }?.times(1000))
+                                .setMediaType(MediaMetadata.MEDIA_TYPE_VIDEO)
+                                .build(),
+                        )
+                        .build()
+                }
                 // An opened video is already loaded (the player waited for it); this resolves
                 // restored and queued items, which nobody is waiting for yet.
                 val info = BotCheck.withoutWaiting(item.mediaId) { StreamCache.getOrLoad(item.mediaId) }
@@ -301,7 +315,8 @@ private class WatchTimeReporter(private val player: ExoPlayer) : Player.Listener
         if (id == videoId) return
         finish()
         videoId = id
-        if (id == null || !Account.signedIn) return
+        // Incognito: no watch session, so every ping below finds none and nothing is sent.
+        if (id == null || !Account.signedIn || Incognito.on) return
         startedAt = android.os.SystemClock.elapsedRealtime()
         if (player.isPlaying) startStretch()
         io.execute {
@@ -636,6 +651,13 @@ internal class YouTubeMediaSourceFactory(context: Context) : MediaSource.Factory
     override fun getSupportedTypes(): IntArray = fallback.supportedTypes
 
     override fun createMediaSource(mediaItem: MediaItem): MediaSource {
+        // A download plays from its saved files: picture and sound merged, or sound alone.
+        Downloads.files(mediaItem.mediaId)?.let { (video, audio) ->
+            Log.i("Yuno", "media source ${mediaItem.mediaId}: downloaded ${if (video != null) "video + audio" else "audio only"}")
+            fun file(f: java.io.File) = ProgressiveMediaSource.Factory(dataSourceFactory)
+                .createMediaSource(mediaItem.buildUpon().setUri(Uri.fromFile(f)).build())
+            return if (video != null) MergingMediaSource(true, true, file(video), file(audio)) else file(audio)
+        }
         val info = StreamCache.get(mediaItem.mediaId) ?: return fallback.createMediaSource(mediaItem)
         val picked = StreamSelection.pick(info)
         // Auto: every quality as one adaptive set. A chosen quality stays pinned below.
