@@ -258,6 +258,12 @@ object YouTube {
         )
     }
 
+    /** [info]'s related videos that can play here: regular videos only, no Shorts or live. */
+    fun related(info: StreamInfo): List<VideoItem> =
+        info.relatedItems.filterIsInstance<StreamInfoItem>()
+            .filterNot { it.isShortFormContent }
+            .mapNotNull { it.toVideoItem() }
+
     private fun StreamInfoItem.toVideoItem(): VideoItem? {
         // Live and upcoming entries need HLS handling that isn't built yet.
         if (streamType != StreamType.VIDEO_STREAM) return null
