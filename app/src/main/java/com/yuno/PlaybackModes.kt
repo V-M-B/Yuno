@@ -182,6 +182,29 @@ object ChaptersStayOpen {
 }
 
 /**
+ * Autoplay (Settings › Playback): when the last video in the queue ends, the first related video
+ * that hasn't played this session starts, as YouTube does. On by default. Runs in the service
+ * ([Autoplayer] in PlaybackService.kt), so it carries on in background and audio-only play too.
+ */
+object Autoplay {
+    private const val KEY = "autoplay"
+    private var prefs: SharedPreferences? = null
+
+    var on by mutableStateOf(true)
+        private set
+
+    fun init(context: Context) {
+        prefs = context.getSharedPreferences("playback", Context.MODE_PRIVATE)
+        on = prefs?.getBoolean(KEY, true) != false
+    }
+
+    fun set(value: Boolean) {
+        on = value
+        prefs?.edit()?.putBoolean(KEY, value)?.apply()
+    }
+}
+
+/**
  * Picture-in-picture by itself (#42): leaving the app (Home, Recents, another app) while a video plays
  * turns it into the floating window. Off by default (Derek): background play is audio only then.
  */

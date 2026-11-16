@@ -113,6 +113,7 @@ class PlaybackService : MediaSessionService() {
         player.setVideoFrameMetadataListener { _, releaseTimeNs, _, _ -> AvSync.onFrameReleased(releaseTimeNs) }
         player.addListener(SponsorSkipper(player))
         player.addListener(SpeedKeeper(player))
+        player.addListener(Autoplayer(player, resolver))
         // Audio only is app-wide and kept; the UI applies it on connect, this covers a start
         // without one (e.g. resuming from the media notification).
         if (AudioOnly.enabled) {
@@ -450,6 +451,77 @@ private class MemoryBudgetLoadControl(
  * resets it: fresh links (StreamRecoverer) or a quality switch reload the same video and keep
  * the speed it was playing at.
  */
+/**
+ * Autoplay ([Autoplay]): the last video in the playlist ended, so the first related video that hasn't
+ * played lately is added and started. The UI follows it like any queue advance
+ * (PlayerState.onPlayerMovedTo drops the finished item). Runs in the service, so the screen can be off.
+ */
+private class Autoplayer(
+    private val player: ExoPlayer,
+    private val resolver: java.util.concurrent.Executor,
+) : Player.Listener {
+    private val main = Handler(Looper.getMainLooper())
+    /** Recently played ids, oldest first, so autoplay doesn't bounce between two videos. */
+    private val played = ArrayDeque<String>()
+    private var pendingFor: String? = null
+
+    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+        val id = mediaItem?.mediaId?.ifBlank { null } ?: return
+        played.remove(id)
+        played.addLast(id)
+        while (played.size > RECENT) played.removeFirst()
+    }
+
+    override fun onPlaybackStateChanged(playbackState: Int) {
+        if (playbackState != Player.STATE_ENDED || !Autoplay.on) return
+        if (player.currentMediaItemIndex + 1 < player.mediaItemCount) return
+        val endedId = player.currentMediaItem?.mediaId?.ifBlank { null } ?: return
+        if (pendingFor == endedId) return
+        pendingFor = endedId
+        val skip = played.toSet() + (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }
+        resolver.execute {
+            val next = runCatching {
+                val info = StreamCache.get(endedId) ?: BotCheck.withoutWaiting(endedId) { StreamCache.getOrLoad(endedId) }
+                val pick = YouTube.related(info).firstOrNull { it.id !in skip } ?: return@runCatching null
+                // Loaded here, so the media source has its streams the moment it's added.
+                val nextInfo = BotCheck.withoutWaiting(pick.id) { StreamCache.getOrLoad(pick.id) }
+                pick to nextInfo
+            }.onFailure { Log.w("Yuno", "autoplay after $endedId failed", it) }.getOrNull()
+            main.post {
+                pendingFor = null
+                if (next == null) return@post
+                // Still where we left it: ended on that video, nothing queued since, autoplay still on.
+                if (!Autoplay.on || player.playbackState != Player.STATE_ENDED) return@post
+                if (player.currentMediaItem?.mediaId != endedId || player.currentMediaItemIndex + 1 < player.mediaItemCount) return@post
+                val (item, info) = next
+                Log.i("Yuno", "autoplay: $endedId → ${item.id}")
+                player.addMediaItem(
+                    MediaItem.Builder()
+                        .setMediaId(item.id)
+                        .setUri(YouTube.watchUrl(item.id))
+                        .setMediaMetadata(
+                            MediaMetadata.Builder()
+                                .setTitle(item.title)
+                                .setArtist(item.channel)
+                                .setArtworkUri(item.thumbnail?.let(Uri::parse))
+                                .setDurationMs(info.duration.takeIf { it > 0 }?.times(1000))
+                                .setMediaType(MediaMetadata.MEDIA_TYPE_VIDEO)
+                                .build(),
+                        )
+                        .build(),
+                )
+                player.seekTo(player.currentMediaItemIndex + 1, 0L)
+                player.prepare()
+                player.play()
+            }
+        }
+    }
+
+    private companion object {
+        const val RECENT = 30
+    }
+}
+
 private class SpeedKeeper(private val player: ExoPlayer) : Player.Listener {
     private var videoId: String? = null
 

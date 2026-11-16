@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.FormatListBulleted
+import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.ClosedCaption
 import androidx.compose.material.icons.rounded.Code
@@ -254,6 +255,11 @@ private fun PlaybackBody(player: PlayerState, search: SettingsSearch) {
                 SeekStep.choices.map { stringResource(R.string.settings_seconds_short, it.toString()) },
                 SeekStep.choices.indexOf(SeekStep.seconds).coerceAtLeast(0),
             ) { SeekStep.set(SeekStep.choices[it]) }
+        }
+        val autoplayTitle = stringResource(R.string.settings_autoplay_title)
+        val autoplayLine = stringResource(R.string.settings_autoplay_line)
+        row(autoplayTitle, autoplayLine, "up next", "related") {
+            ToggleRow(Icons.AutoMirrored.Rounded.PlaylistPlay, autoplayTitle, autoplayLine, Autoplay.on) { Autoplay.set(it) }
         }
         val chaptersTitle = stringResource(R.string.settings_chapters_open_title)
         val chaptersLine = stringResource(R.string.settings_chapters_open_line)
