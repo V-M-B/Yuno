@@ -10,6 +10,8 @@ changes something people see or feel (faster, fewer errors); then say that.
 
 ## Unreleased
 
+## 1.0.2
+
 ### New
 
 - **Swipe the mini-player.** Swipe it right to close the video, or left to pause and play.
