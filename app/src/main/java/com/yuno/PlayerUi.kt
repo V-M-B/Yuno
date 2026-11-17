@@ -967,7 +967,7 @@ fun MiniPlayer(
                     else -> MiniHeight
                 },
             )
-            .then(if (gestures) Modifier.miniPlayerPullGestures(pull, onDismiss = state::close, onTogglePlay = state::togglePlay) else Modifier)
+            .then(if (gestures) Modifier.miniPlayerPullGestures(pull, onDismiss = state::close, onTogglePlay = state::togglePlay, playing = state.isPlaying, shape = shape) else Modifier)
             .pressable(pressedScale = 0.98f, onClick = onExpand)
             // Liquid glass already clips, and an extra clip layer around it
             // forces another offscreen buffer. That buffer is what the fold

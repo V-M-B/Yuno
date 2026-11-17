@@ -10,6 +10,9 @@ changes something people see or feel (faster, fewer errors); then say that.
 
 ## Unreleased
 
+### Improved
+- **Swipe the mini-player like an email.** Swipe left and green shows behind it with pause or play; swipe right and red shows with a close button. The colour goes solid when letting go will act.
+
 ### Fixed
 - Closing the mini-player by swiping no longer flashes it back in place before it goes away.
 

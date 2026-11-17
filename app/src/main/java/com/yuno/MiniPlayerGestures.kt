@@ -23,6 +23,20 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
@@ -30,7 +44,6 @@ import androidx.compose.ui.input.pointer.PointerInputChange
 import kotlin.math.abs
 import kotlin.math.sqrt
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val PULL_BIAS = 1.5f
@@ -43,6 +56,12 @@ private const val SIDE_ACT_SHARE = 0.3f
 private const val SIDE_FLICK = 1200f
 /** Swiping left only pauses, so the bar moves no further than this before it springs back. */
 private val PAUSE_PULL_MAX = 96.dp
+/** Behind the sliding bar: green for pause/play, red for close, a white icon by the edge. */
+private val SWIPE_GREEN = Color(0xFF34C759)
+private val SWIPE_RED = Color(0xFFFF3B30)
+private val SWIPE_GLYPH = 24.dp
+/** How far in from the bar's edge the icon settles. */
+private val SWIPE_ICON_INSET = 30.dp
 /** After a close the bar stays where it left (off to the side, or dropped) while it exits. */
 private const val CLOSED_HOLD_MS = 900L
 
@@ -72,6 +91,8 @@ fun Modifier.miniPlayerPullGestures(
     pull: MiniPlayerPull?,
     onDismiss: (() -> Unit)? = null,
     onTogglePlay: (() -> Unit)? = null,
+    playing: Boolean = true,
+    shape: Shape = RoundedCornerShape(percent = 50),
 ): Modifier = composed {
     if (pull == null && onDismiss == null && onTogglePlay == null) return@composed this
     val currentPull by rememberUpdatedState(pull)
@@ -84,6 +105,23 @@ fun Modifier.miniPlayerPullGestures(
     val lift = remember { mutableFloatStateOf(0f) }
     val drop = remember { mutableFloatStateOf(0f) }
     val settle = remember { arrayOfNulls<Job>(1) }
+    val currentPlaying by rememberUpdatedState(playing)
+    // 0..1 as a sideways swipe crosses the point where letting go acts; the pop is a
+    // short overshoot of the revealed glyph at that moment and when it acts.
+    val armed = remember { Animatable(0f) }
+    val pop = remember { Animatable(1f) }
+    val armedSide = remember { mutableFloatStateOf(0f) }
+    val pausePainter = rememberVectorPainter(Icons.Rounded.Pause)
+    val playPainter = rememberVectorPainter(Icons.Rounded.PlayArrow)
+    val closePainter = rememberVectorPainter(Icons.Rounded.Close)
+    fun popGlyph() = scope.launch {
+        pop.snapTo(1f)
+        pop.animateTo(1.22f, spring(dampingRatio = 1f, stiffness = Spring.StiffnessHigh))
+        pop.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = Spring.StiffnessMedium))
+    }
+    fun arm(on: Boolean) = scope.launch {
+        armed.animateTo(if (on) 1f else 0f, spring(dampingRatio = 1f, stiffness = Spring.StiffnessMediumLow))
+    }
     pointerInput(Unit) {
         val liftEase = PULL_LIFT_EASE.toPx()
         val dismissPx = DISMISS_DISTANCE.toPx()
@@ -126,13 +164,30 @@ fun Modifier.miniPlayerPullGestures(
                 val width = size.width.toFloat().coerceAtLeast(1f)
                 // Left only nudges the bar (it pauses, it doesn't leave); right follows the finger off.
                 fun bound(x: Float) = if (x < 0f) -pauseMaxPx * (1f - 1f / (1f + -x / pauseMaxPx)) else x
+                val actPx = width * SIDE_ACT_SHARE
                 var moved = slopped.position.x - down.position.x
                 slide.floatValue = bound(moved)
+                var wasArmed = false
+                fun track() {
+                    val canAct = (moved > 0f && currentDismiss != null) || (moved < 0f && currentToggle != null)
+                    val nowArmed = canAct && abs(moved) >= actPx
+                    if (nowArmed != wasArmed) {
+                        wasArmed = nowArmed
+                        armedSide.floatValue = if (moved > 0f) 1f else -1f
+                        arm(nowArmed)
+                        if (nowArmed) {
+                            popGlyph()
+                            haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        }
+                    }
+                }
+                track()
                 val finished = drag(pointer) { change ->
                     moved += change.positionChange().x
                     change.consume()
                     tracker.addPointerInputChange(change)
                     slide.floatValue = bound(moved)
+                    track()
                 }
                 val velocity = if (finished) tracker.calculateVelocity().x.coerceIn(-maxVelocity, maxVelocity) else 0f
                 val close = currentDismiss
@@ -155,16 +210,21 @@ fun Modifier.miniPlayerPullGestures(
                         // flashed the bar in its old place before it left.
                         delay(CLOSED_HOLD_MS)
                         slide.floatValue = 0f
+                        armed.snapTo(0f)
                     } else {
                         if (pause && toggle != null) {
                             haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                             toggle()
+                            armedSide.floatValue = -1f
+                            armed.snapTo(1f)
+                            popGlyph()
                         }
                         animate(
                             initialValue = from,
                             targetValue = 0f,
                             animationSpec = spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessMediumLow),
                         ) { value, _ -> slide.floatValue = value }
+                        arm(false)
                     }
                 }
                 return@awaitEachGesture
@@ -224,6 +284,38 @@ fun Modifier.miniPlayerPullGestures(
                     targetValue = 0f,
                     animationSpec = spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessMediumLow),
                 ) { value, _ -> lift.floatValue = value }
+            }
+        }
+    }.drawBehind {
+        // Like swiping an email away: the bar's own shape, filled behind it in the action's
+        // colour (green pause/play when sliding left, red close when sliding right), with the
+        // icon by the edge it uncovers. It deepens and the icon pops once letting go would act.
+        val moved = slide.floatValue
+        if (moved == 0f) return@drawBehind
+        val left = moved < 0f
+        val gap = abs(moved)
+        val reach = if (left) PAUSE_PULL_MAX.toPx() * 0.55f else size.width * SIDE_ACT_SHARE
+        val grow = (gap / reach).coerceIn(0f, 1f)
+        if (grow <= 0.01f) return@drawBehind
+        val lit = if ((armedSide.floatValue < 0f) == left) armed.value else 0f
+        val hue = if (left) SWIPE_GREEN else SWIPE_RED
+        val fill = lerp(hue.copy(alpha = 0.55f), hue, lit)
+        drawOutline(
+            shape.createOutline(size, layoutDirection, this),
+            color = fill.copy(alpha = fill.alpha * grow),
+        )
+        val edge = SWIPE_ICON_INSET.toPx()
+        val cx = if (left) size.width - (gap / 2f).coerceAtMost(edge) else (gap / 2f).coerceAtMost(edge)
+        val cy = size.height / 2f
+        val painter = when {
+            !left -> closePainter
+            currentPlaying -> pausePainter
+            else -> playPainter
+        }
+        val g = SWIPE_GLYPH.toPx() * (0.6f + 0.4f * grow) * pop.value
+        translate(cx - g / 2f, cy - g / 2f) {
+            with(painter) {
+                draw(androidx.compose.ui.geometry.Size(g, g), alpha = grow, colorFilter = ColorFilter.tint(Color.White))
             }
         }
     }.graphicsLayer {
