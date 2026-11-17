@@ -30,6 +30,7 @@ import androidx.compose.ui.input.pointer.PointerInputChange
 import kotlin.math.abs
 import kotlin.math.sqrt
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val PULL_BIAS = 1.5f
@@ -42,6 +43,8 @@ private const val SIDE_ACT_SHARE = 0.3f
 private const val SIDE_FLICK = 1200f
 /** Swiping left only pauses, so the bar moves no further than this before it springs back. */
 private val PAUSE_PULL_MAX = 96.dp
+/** After a close the bar stays where it left (off to the side, or dropped) while it exits. */
+private const val CLOSED_HOLD_MS = 900L
 
 private fun pullLift(pulled: Float, ease: Float): Float =
     if (pulled <= 0f || ease <= 0f) 0f else 0.5f * 2f * ease * (sqrt(1f + pulled / ease) - 1f)
@@ -148,6 +151,9 @@ fun Modifier.miniPlayerPullGestures(
                             animationSpec = spring(dampingRatio = 1f, stiffness = Spring.StiffnessMedium),
                         ) { value, _ -> slide.floatValue = value }
                         close()
+                        // Stay off to the side while the bar exits. Snapping back to 0 here
+                        // flashed the bar in its old place before it left.
+                        delay(CLOSED_HOLD_MS)
                         slide.floatValue = 0f
                     } else {
                         if (pause && toggle != null) {
@@ -185,6 +191,7 @@ fun Modifier.miniPlayerPullGestures(
                             animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMedium),
                         ) { value, _ -> drop.floatValue = value }
                         close()
+                        delay(CLOSED_HOLD_MS)
                         drop.floatValue = 0f
                     } else {
                         animate(
