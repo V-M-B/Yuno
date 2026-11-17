@@ -10,6 +10,9 @@ changes something people see or feel (faster, fewer errors); then say that.
 
 ## Unreleased
 
+### Fixed
+- Closing the mini-player by swiping no longer flashes it back in place before it goes away.
+
 ## 1.0.3
 
 ### New
