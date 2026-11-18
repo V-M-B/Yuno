@@ -108,9 +108,11 @@ fun SettingsScreen(
         if (firstSearch) firstSearch = false else scroll.scrollTo(0)
     }
     val ime = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    val titlePx = with(androidx.compose.ui.platform.LocalDensity.current) { 56.dp.toPx() }
 
     MaterialTheme(colorScheme = c, typography = BitChordTypography, shapes = MaterialTheme.shapes) {
         CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.bodyLarge.merge(OwnDirectionText)) {
+            Box(Modifier.fillMaxSize()) {
             Column(
                 Modifier
                     .fillMaxSize()
@@ -127,6 +129,9 @@ fun SettingsScreen(
                     PageBody(section, player, onSignIn, onSignedOut)
                 }
                 Spacer(Modifier.height(32.dp))
+            }
+            // As on Home and the other tabs: rows dissolve as they slide under the status bar.
+            PageTopFade(cover = { (scroll.value / titlePx).coerceIn(0f, 1f) }, page = c.background)
             }
         }
     }
