@@ -12,8 +12,8 @@ android {
         applicationId = "com.yuno"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.0.3"
+        versionCode = 6
+        versionName = "1.1.2"
         buildConfigField("String", "GITHUB_RELEASES_REPO", "\"V-M-B/Yuno\"")
     }
 
@@ -91,6 +91,8 @@ dependencies {
     implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // Artist-page colours, read off the channel banner (ArtworkPalette).
+    implementation("androidx.palette:palette:1.0.0")
     implementation("com.google.guava:guava:33.3.1-android")
     // Captions translated on the phone (YouTube refuses its own auto-translate): a model per language, downloaded on first use.
     implementation("com.google.mlkit:translate:17.0.3")

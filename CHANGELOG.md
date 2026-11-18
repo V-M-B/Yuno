@@ -5,10 +5,62 @@ What each release brings, in a line or two per change, written for the people us
 What's new sheet (tap Update on Home) shows them before installing.
 
 Add every change someone would notice under **Unreleased**, under `### New`, `### Improved` or
-`### Fixed`. Publishing renames Unreleased to the version. Leave out under-the-hood work unless it
+`### Miscellaneous`. Publishing renames Unreleased to the version. Leave out under-the-hood work unless it
 changes something people see or feel (faster, fewer errors); then say that.
 
 ## Unreleased
+
+## 1.1.2
+
+### New
+- **Pick the audio language.** A dubbed video lists its languages under Quality. Your pick is kept for every video that has that language.
+- **Any speed in fullscreen.** The speed card has a slider above the presets, in 0.05× steps.
+- **More videos beside the player** on a tablet or an open foldable held sideways, as in the YouTube app.
+- Everything from Yuno 1.1.0 and 1.1.1: channel pages with tabs, categories along the top of Home, the new search with filters, playlist pages in the colour of their cover, livestreams with chat, sharper thumbnails, and videos that open from the thumbnail you tapped.
+
+### Improved
+- The brightness and volume level shows at the top of the video, in the middle, so your hand never covers it.
+- Settings pages fade out under the status bar as they scroll, like Home and the other tabs.
+
+### Miscellaneous
+- Audio only is gone, and playlists no longer have the sort chips or the Videos / Shorts filter. Both follow the main Yuno app.
+
+## 1.1.1
+
+![Yuno](https://github.com/danielkanan/Yuno/raw/main/docs/banner.png?v=2)
+
+### New
+- Tapping a video opens the full player from that thumbnail. Minimising puts it in the bar, and tapping that same video opens it from the bar.
+
+### Improved
+- Going back from a video, Short, channel, or playlist returns you to the same spot. Search stays open behind the player.
+- The blur behind the status bar follows the video you just switched to.
+
+### Miscellaneous
+- Channel and playlist pages stay plain until you turn on Channel & playlist colors in Settings › Appearance.
+
+## 1.1.0
+
+![Yuno](https://github.com/danielkanan/Yuno/raw/main/docs/banner.png?v=2)
+
+### New
+- Channel pages take their colour from the profile picture. Tabs swipe between Home, Videos, Shorts, Live, Playlists and the rest, and Posts and About are their own pages.
+- Home has recommendation categories along the top. Each one keeps its own list.
+- A playlist page is the colour of its cover, with Play and Shuffle, and the videos in a grid.
+- Search has type chips under the bar, and a filter menu for duration, date and sort. A channel, a Shorts row, a video shelf and posts stay as their own blocks.
+- Livestreams play, with the watching count and live chat. A live thumbnail says LIVE.
+- Thumbnails, Shorts and post pictures are sharper.
+
+### Improved
+- A video wider than usual keeps the normal player, with black bars. A Short fits on the screen with black bars instead of being enlarged to fill it.
+- The Update button on Home sits clear of search and your picture.
+
+### Miscellaneous
+- Audio only is gone.
+## 1.0.4
+
+### Improved
+- **Swipe the mini-player like an email.** Swipe left and green shows behind it with pause or play; swipe right and red shows with a close button. The colour goes solid when letting go will act.
 
 ### Fixed
 - Closing the mini-player by swiping no longer flashes it back in place before it goes away.

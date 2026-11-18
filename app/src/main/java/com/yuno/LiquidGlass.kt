@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
@@ -147,5 +148,22 @@ fun Modifier.liquidGlass(
         onDrawSurface = { drawRect(color = surfaceTintColor, size = size) },
         exportedBackdrop = exportedBackdrop,
         backdropScale = GLASS_RESOLUTION_SCALE,
+    )
+}
+
+/**
+ * Just the rim of liquid glass — the directional highlight along a glass edge —
+ * for a control that keeps its own fill. Brought from BitChord's [liquidGlassRim].
+ * Nothing at all while Liquid Glass is off or unsupported.
+ */
+@Composable
+fun Modifier.liquidGlassRim(shape: CornerBasedShape): Modifier {
+    if (!LocalLiquidGlassEnabled.current || !isGlassSupported()) return this
+    val shapeProvider = remember(shape) { ShapeProvider { shape } }
+    return then(
+        HighlightElement(
+            shapeProvider = shapeProvider,
+            highlight = { Highlight.Default },
+        ),
     )
 }

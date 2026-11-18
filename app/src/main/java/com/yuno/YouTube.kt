@@ -57,6 +57,8 @@ data class VideoItem(
     val durationSec: Long,
     val views: Long,
     val uploaded: String?,
+    /** On air now. The thumbnail badge says LIVE in the duration's place. */
+    val live: Boolean = false,
     /** The card's own "Not interested" / "Don't recommend channel" (signed-in feeds only, #16). */
     val feedback: CardFeedback? = null,
 )
@@ -91,7 +93,15 @@ data class VideoDetails(
     val storyboards: List<Storyboard> = emptyList(),
     /** Every caption track YouTube has for this video (Captions.kt). */
     val captions: List<CaptionTrack> = emptyList(),
+    /** A stream that is on right now. A finished livestream is an ordinary video. */
+    val live: Boolean = false,
+    /** The languages this video's sound comes in, the original first; empty when there is only one. */
+    val audioTracks: List<AudioLanguageTrack> = emptyList(),
 )
+
+/** One language of a video's sound: [language] is its code ("en", "hi"), [name] what the picker shows. */
+@Immutable
+data class AudioLanguageTrack(val language: String, val name: String, val original: Boolean)
 
 @Immutable
 data class Chapter(val startMs: Long, val title: String)
@@ -235,6 +245,7 @@ object YouTube {
     suspend fun details(id: String, wait: Boolean = true): VideoDetails = withContext(Dispatchers.IO) {
         val info = if (wait) BotCheck.retrying(id) { StreamCache.getOrLoad(id) } else BotCheck.withoutWaiting(id) { StreamCache.getOrLoad(id) }
         val picked = StreamSelection.pick(info)
+        val live = info.liveSource()
         VideoDetails(
             item = VideoItem(
                 id = id,
@@ -254,9 +265,11 @@ object YouTube {
             likes = info.likeCount,
             subscribers = info.uploaderSubscriberCount,
             related = info.relatedItems.filterIsInstance<StreamInfoItem>().mapNotNull { it.toVideoItem() },
-            playable = picked.isPlayable,
+            playable = picked.isPlayable || live != null,
+            live = live != null,
             quality = picked.playedHeight?.let { "${it}p" },
             qualities = StreamSelection.heights(info),
+            audioTracks = StreamSelection.audioTracks(info),
             aspect = (if (picked.usesSeparate) picked.video else picked.muxed)
                 ?.takeIf { it.width > 0 && it.height > 0 }?.let { it.width.toFloat() / it.height },
             chapters = info.streamSegments.orEmpty()
@@ -410,8 +423,8 @@ object StreamCache {
                 val picked = StreamSelection.pick(it)
                 // Details came, but the stream request was refused: a bot check, not a dead
                 // video (or one with only ANDROID's 360p combined stream), so nothing is
-                // cached and the load can be retried.
-                if (!picked.usesSeparate && BotCheck.refusedSince(id, startedAt)) throw StreamsRefused(id, it)
+                // cached and the load can be retried. A live manifest is a real stream.
+                if (!picked.usesSeparate && it.liveSource() == null && BotCheck.refusedSince(id, startedAt)) throw StreamsRefused(id, it)
                 entries[id] = Entry(it, System.currentTimeMillis())
                 Net.noteMediaHost((picked.video ?: picked.muxed)?.content)
             }
@@ -560,6 +573,34 @@ object QualityPreference {
     private fun onMobileData(): Boolean = connectivity?.isActiveNetworkMetered == true
 }
 
+/**
+ * The language to hear a video in when it has more than one (a dubbed video), or null for its
+ * original. Kept across launches and videos: pick Hindi once and every video that has Hindi plays
+ * in it; the rest play their original. Read by the playback service, like [QualityPreference].
+ */
+object AudioLanguage {
+    private const val KEY = "audio_language"
+    private var prefs: SharedPreferences? = null
+
+    var preferred by androidx.compose.runtime.mutableStateOf<String?>(null)
+        private set
+
+    fun init(context: Context) {
+        prefs = context.getSharedPreferences("playback", Context.MODE_PRIVATE)
+        preferred = prefs?.getString(KEY, null)?.takeIf { it.isNotBlank() }
+    }
+
+    fun choose(language: String?) {
+        preferred = language
+        prefs?.edit()?.apply { if (language == null) remove(KEY) else putString(KEY, language) }?.apply()
+    }
+}
+
+/** "en" for an English track, from its locale or its id ("en-US.4"); null when YouTube names no language. */
+internal fun AudioStream.languageKey(): String? =
+    audioLocale?.language?.takeIf { it.isNotBlank() }
+        ?: audioTrackId?.substringBefore('.')?.substringBefore('-')?.takeIf { it.isNotBlank() }
+
 /** Standard rungs shown in the quality sheet (matches YouTube's labels). */
 val QUALITY_LADDER = intArrayOf(144, 240, 360, 480, 720, 1080, 1440, 2160, 4320)
 
@@ -612,10 +653,19 @@ object StreamSelection {
         // The original language is preferred, but ANY audio track beats none: with no
         // accepted audio the player fell back to the 360p combined stream while the label
         // still said 1080p (the blurry-video bug, 2026-10-04).
+        // A chosen language (AudioLanguage) comes first when this video has it.
+        val language = AudioLanguage.preferred
         val audio = info.audioStreams
             .filter { it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
             .sortedWith(
-                compareBy<AudioStream> { if (it.audioTrackType == null || it.audioTrackType == AudioTrackType.ORIGINAL) 0 else 1 }
+                compareBy<AudioStream> { if (language != null && it.languageKey() == language) 0 else 1 }
+                    .thenBy {
+                        when (it.audioTrackType) {
+                            null, AudioTrackType.ORIGINAL -> 0
+                            AudioTrackType.DESCRIPTIVE -> 2
+                            else -> 1
+                        }
+                    }
                     .thenBy { if (it.format == MediaFormat.M4A) 0 else 1 }
                     .thenByDescending { it.averageBitrate },
             )
@@ -640,6 +690,30 @@ object StreamSelection {
             .sortedBy { it.height }
     }
 
+    /** The languages on offer, the original first; empty unless there are at least two. */
+    fun audioTracks(info: StreamInfo): List<AudioLanguageTrack> {
+        val tracks = info.audioStreams
+            .filter { it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.audioTrackType != AudioTrackType.DESCRIPTIVE }
+            .mapNotNull { stream -> stream.languageKey()?.let { it to stream } }
+            .groupBy({ it.first }, { it.second })
+            .map { (language, streams) ->
+                val locale = streams.firstNotNullOfOrNull { it.audioLocale }
+                AudioLanguageTrack(
+                    language = language,
+                    name = locale?.getDisplayLanguage(java.util.Locale.getDefault())?.takeIf { it.isNotBlank() }?.replaceFirstChar { it.titlecase() }
+                        ?: streams.firstNotNullOfOrNull { it.audioTrackName?.takeIf { n -> n.isNotBlank() } }
+                        ?: language,
+                    original = streams.any { it.audioTrackType == AudioTrackType.ORIGINAL },
+                )
+            }
+            .sortedWith(compareBy<AudioLanguageTrack> { !it.original }.thenBy { it.name })
+        return if (tracks.size > 1) tracks else emptyList()
+    }
+
+    /** The language playing: the chosen one when this video has it, else the original. */
+    fun playingLanguage(tracks: List<AudioLanguageTrack>): String? =
+        (tracks.firstOrNull { it.language == AudioLanguage.preferred } ?: tracks.firstOrNull { it.original } ?: tracks.firstOrNull())?.language
+
     fun heights(info: StreamInfo): List<Int> = info.videoOnlyStreams
         .filter { it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.height > 0 }
         .map { it.height }
@@ -653,11 +727,6 @@ private val YT_VIDEO_ID_IN_THUMB = Regex("""i\.ytimg\.com/vi/([\w-]{11})/""")
 
 fun ytVideoIdFromThumbUrl(url: String): String? = YT_VIDEO_ID_IN_THUMB.find(url)?.groupValues?.getOrNull(1)
 
-fun isLowRungYtimgUrl(url: String): Boolean {
-    val path = url.substringBefore('?')
-    return "/hqdefault" in path || "/mqdefault" in path || "/default.jpg" in path
-}
-
 fun ytimgThumbnailWidth(url: String): Int {
     Regex("=w(\\d+)").find(url)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
     return when {
@@ -669,16 +738,13 @@ fun ytimgThumbnailWidth(url: String): Int {
     }
 }
 
-fun feedThumbnailUrl(videoId: String): String = "https://i.ytimg.com/vi/$videoId/sddefault.jpg"
-
+/** Flow's stored thumbnail: `hq720` for a YouTube video image, the given URL otherwise. */
 fun sharpenFeedThumbnail(apiUrl: String?, videoId: String): String {
     val api = apiUrl?.trim()?.ifBlank { null }
-    if (api != null && isLowRungYtimgUrl(api)) return feedThumbnailUrl(videoId)
-    if (api != null && ytimgThumbnailWidth(api) >= 720) return api
     if (api != null && ("googleusercontent.com" in api || "ggpht.com" in api)) {
-        return upscaleGgphtThumbnail(api, 1280)
+        return ThumbnailUrlResolver.resizeImageThumbnail(api, 1280, 720)
     }
-    return feedThumbnailUrl(videoId)
+    return ThumbnailUrlResolver.normalizeVideoThumbnail(videoId, api)
 }
 
 fun channelAvatarEdgePx(url: String): Int =
@@ -701,17 +767,6 @@ fun sharpenChannelAvatarUrl(url: String, minEdgePx: Int): String {
     val ceiling = if ("/ytc/" in normalized && "googleusercontent.com" !in normalized) 96 else 800
     val edge = minOf(minEdgePx, ceiling).coerceAtLeast(current)
     return normalized.replace(Regex("=s\\d+"), "=s$edge")
-}
-
-internal fun upscaleGgphtThumbnail(url: String, targetWidth: Int): String {
-    val current = ytimgThumbnailWidth(url)
-    if (current >= targetWidth) return url
-    val height = targetWidth * 9 / 16
-    return if ("=w" in url) {
-        url.replace(Regex("=w\\d+-h\\d+"), "=w$targetWidth-h$height")
-    } else {
-        "$url=w$targetWidth-h$height"
-    }
 }
 
 fun VideoItem.feedAvatar(): String? =

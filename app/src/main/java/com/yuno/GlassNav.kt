@@ -53,6 +53,7 @@ fun GlassNavBar(
     onExpandPlayer: () -> Unit,
     dock: PlayerDock? = null,
     pull: MiniPlayerPull? = null,
+    showMini: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val pillShape = remember { RoundedCornerShape(percent = 50) }
@@ -62,7 +63,7 @@ fun GlassNavBar(
     val haptics = rememberBarHaptics()
     val currentOnTabSelected by rememberUpdatedState(onTabSelected)
     val glassSurface: @Composable () -> Modifier = { Modifier.liquidGlass(shape = pillShape) }
-    val song = if (selected == Tab.Shorts) null else player.current
+    val song = if (selected == Tab.Shorts || !showMini) null else player.current
 
     FloatingTabBar(
         selectedTabKey = selected,
@@ -85,7 +86,7 @@ fun GlassNavBar(
                     // The pull lifts the pill. It has to sit outside the accessory's clip,
                     // or the top of the bar is cut off as the finger rises — gesture on the
                     // outside of the glass.
-                    modifier = Modifier.miniPlayerPullGestures(pull, onDismiss = player::close, onTogglePlay = player::togglePlay).then(accessoryModifier),
+                    modifier = Modifier.miniPlayerPullGestures(pull, onDismiss = player::close, onTogglePlay = player::togglePlay, playing = player.isPlaying).then(accessoryModifier),
                     shape = pillShape,
                     showVideo = live,
                     compact = true,
@@ -105,7 +106,7 @@ fun GlassNavBar(
                 MiniPlayer(
                     state = player,
                     onExpand = onExpandPlayer,
-                    modifier = Modifier.miniPlayerPullGestures(pull, onDismiss = player::close, onTogglePlay = player::togglePlay).fillMaxWidth().then(accessoryModifier),
+                    modifier = Modifier.miniPlayerPullGestures(pull, onDismiss = player::close, onTogglePlay = player::togglePlay, playing = player.isPlaying).fillMaxWidth().then(accessoryModifier),
                     shape = pillShape,
                     showVideo = live,
                     dock = if (visible) dock else null,

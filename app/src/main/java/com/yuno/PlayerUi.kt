@@ -89,6 +89,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -110,6 +111,8 @@ private const val StatusBlackFromUp = 0.25f
 /** Morph progress by which the status bar over the video is fully black. */
 private const val StatusBlackEnd = 0.9f
 internal val StageSideGap = 0.dp
+/** Window width (dp) from which a sideways player lists "More videos" beside the video. */
+private const val SideListMinWindow = 840
 internal val StageRadius = 0.dp
 internal val MiniHeight = 70.dp
 /** Expanded liquid-glass accessory — horizontal insets match on both sides. */
@@ -134,11 +137,11 @@ private val MiniGlassTitleTracking = 0.15.sp
 private val MiniGlassChannelSize = 12.sp
 private val MiniGlassChannelTracking = 0.35.sp
 /**
- * Portrait stage shape: tall videos can use up to 4:5; wide ones letterbox inside a 16:9 frame
- * (2.35:1 and wider no longer squash the whole player flat).
+ * Portrait stage shape: tall videos can use up to 4:5. Anything wider than 16:9 stays in that
+ * frame and letterboxes, so a short cinematic picture does not shrink the player.
  */
 internal const val StageMinAspect = 0.8f
-internal const val StageMaxAspect = 2.4f
+internal const val StageMaxAspect = 16f / 9f
 /**
  * The stage never takes more than this share of the window's height: in a short split-screen
  * pane a tall video would otherwise push the details (and half the video) off the bottom.
@@ -186,22 +189,24 @@ fun PlayerScreen(
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var descriptionOpen by remember(item.id) { mutableStateOf(false) }
-    // Audio only (Derek, 2026-10-25): the open player has no video space at all — the stage
-    // folds away (the picture fading and lifting as its height closes) and unfolds for video.
-    // Only on the fully open player: swiping it down unfolds it again, so the thumbnail still
-    // lands in the mini-player.
-    val reduced = rememberReducedMotion()
-    val fold = remember { Animatable(if (AudioOnly.enabled) 1f else 0f) }
-    LaunchedEffect(AudioOnly.enabled) {
-        val target = if (AudioOnly.enabled) 1f else 0f
-        if (reduced) fold.snapTo(target) else fold.animateTo(target, spring(dampingRatio = 1f, stiffness = 260f, visibilityThreshold = 0.0005f))
-    }
     // Live blur of the video top in the status-bar strip only.
     val statusScrimAlpha = {
         val p = progress()
-        ramp(p, StatusBlackFromUp, StatusBlackEnd) * (1f - fold.value)
+        ramp(p, StatusBlackFromUp, StatusBlackEnd)
     }
     val statusBarPx = with(LocalDensity.current) { top.roundToPx() }
+    // A wide window held sideways (a tablet, an open foldable): "More videos" gets its own column
+    // beside the video, as in the YouTube app, instead of sitting under the details.
+    val config = androidx.compose.ui.platform.LocalConfiguration.current
+    val sideWidth = if (config.screenWidthDp >= SideListMinWindow && config.screenWidthDp > config.screenHeightDp) {
+        (config.screenWidthDp.dp * 0.3f).coerceIn(320.dp, 420.dp)
+    } else 0.dp
+    val twoPane = sideWidth > 0.dp
+    val stageWidth = config.screenWidthDp.dp - sideWidth
+    val stageHeightPx = with(LocalDensity.current) {
+        (stageWidth.toPx() / state.stageAspect.coerceAtLeast(0.5f)).roundToInt()
+    }
+    BindVideoTopPoster(item.id, item.thumbnail, statusBarPx, stageHeightPx)
     LaunchedEffect(Unit) {
         VideoTopSampler.start()
         snapshotFlow { statusScrimAlpha() > 0.5f }.collect { StatusBarOverVideo.on = it }
@@ -219,7 +224,8 @@ fun PlayerScreen(
     DisposableEffect(dock) { onDispose { dock.attached = false } }
     Box(Modifier.fillMaxSize()) {
         // The page fades in behind the video. The video itself stays solid and
-        // flies to the mini-player's thumbnail (dock fade).
+        // grows out of the thumbnail that was tapped, or out of the mini player
+        // when that is what opened it.
         Box(
             Modifier
                 .fillMaxSize()
@@ -237,13 +243,15 @@ fun PlayerScreen(
                 .playerPageFade { dock.pageAlpha(sheetMotion.holding) }
                 .padding(bottom = bottomClearance + 8.dp),
         )
-        Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxSize()) {
+        // Above the side column: the video crosses it on its way to and from the mini player.
+        Column(Modifier.weight(1f).fillMaxHeight().zIndex(1f)) {
             Spacer(Modifier.height(top + StageTopGap))
             Box(Modifier.zIndex(2f).onGloballyPositioned {
                 if (dock.offset() != null) dock.attached = true
             }) {
                 VideoStage(
-                    state, sheetMotion, dock, progress, fold, onCollapse, onFullscreen, interactive,
+                    state, sheetMotion, dock, progress, onCollapse, onFullscreen, interactive,
                     statusBarHeight = top,
                     statusScrimAlpha = statusScrimAlpha,
                 )
@@ -269,9 +277,10 @@ fun PlayerScreen(
                             letterSpacing = (-0.6).sp,
                         )
                         Spacer(Modifier.height(6.dp))
+                        val watching = if (details?.live == true) state.liveChat.watching ?: item.views.takeIf { it >= 0 }?.let { "${formatCount(it)} watching" } else null
                         val stats = listOfNotNull(
-                            item.views.takeIf { it >= 0 }?.let { "${formatCount(it)} views" },
-                            item.uploaded?.ifBlank { null },
+                            watching ?: item.views.takeIf { it >= 0 }?.let { "${formatCount(it)} views" },
+                            item.uploaded?.ifBlank { null }?.takeIf { details?.live != true },
                             details?.likes?.takeIf { it > 0 }?.let { "${formatCount(it)} likes" },
                         ).joinDots()
                         val hasDescription = !details?.description.isNullOrBlank()
@@ -337,14 +346,17 @@ fun PlayerScreen(
                                 SubscribeButton(subscribed = false, onClick = state::toggleSubscribe)
                             }
                         }
-                        // Speed, quality and audio only live on the video's own controls (VideoView.kt).
+                        // Speed and quality live on the video's own controls (VideoView.kt).
                         PlayerActions(state)
                         QueueCard(state, onOpen = { state.sheet = PlayerSheet.Queue })
-                        CommentsCard(state.comments, onOpen = { state.sheet = PlayerSheet.Comments })
+                        if (details?.live == true) LiveChatCard(state.liveChat) { state.sheet = PlayerSheet.LiveChat }
+                        else CommentsCard(state.comments, onOpen = { state.sheet = PlayerSheet.Comments })
                     }
                 }
                 val related = details?.related.orEmpty()
-                if (related.isNotEmpty()) {
+                if (twoPane) {
+                    // In the side column.
+                } else if (related.isNotEmpty()) {
                     item(key = "moreTitle") { SectionTitle("More videos") }
                     items(related, key = { "rel-" + it.id }) { video ->
                         Box(Modifier.padding(horizontal = PageGutter)) { VideoRow(video, onClick = { onOpen(video) }) }
@@ -355,6 +367,26 @@ fun PlayerScreen(
                     }
                 }
             }
+        }
+        if (twoPane) {
+            val related = details?.related.orEmpty()
+            // A new video starts its list at the top.
+            val sideList = remember(item.id) { androidx.compose.foundation.lazy.LazyListState() }
+            LazyColumn(
+                state = sideList,
+                modifier = Modifier
+                    .width(sideWidth)
+                    .fillMaxHeight()
+                    .playerPageFade { dock.pageAlpha(sheetMotion.holding) },
+                contentPadding = PaddingValues(top = top + StageTopGap + 12.dp, end = PageGutter, bottom = bottomClearance + PageGutter),
+            ) {
+                if (related.isNotEmpty()) {
+                    items(related, key = { "rel-" + it.id }) { video -> VideoCard(video, onClick = { onOpen(video) }) }
+                } else if (state.loading) {
+                    item(key = "loading") { FeedSkeletons(3) }
+                }
+            }
+        }
         }
         // The page's bottom vignette, as on the tabs: the details dissolve behind the nav
         // pill instead of running hard into it. Drawn only, never touchable.
@@ -372,9 +404,17 @@ fun PlayerScreen(
         if (interactive) BottomGestureGuard(Modifier.align(Alignment.BottomCenter))
 
         // Comments open as a panel whose top sits just under the video.
+        if (state.sheet == PlayerSheet.LiveChat) {
+            val videoBottom = top + StageTopGap + (stageWidth - StageSideGap * 2) / state.stageAspect
+            LiveChatPanel(
+                state.liveChat,
+                channelId = details?.item?.channelId() ?: item.channelId(),
+                partialTop = videoBottom + 10.dp,
+                onClose = { state.sheet = null },
+            )
+        }
         if (state.sheet == PlayerSheet.Comments) {
-            val screenW = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
-            val videoBottom = top + StageTopGap + (screenW - StageSideGap * 2) / state.stageAspect
+            val videoBottom = top + StageTopGap + (stageWidth - StageSideGap * 2) / state.stageAspect
             CommentsPanel(
                 state.comments,
                 partialTop = videoBottom + 10.dp,
@@ -382,8 +422,7 @@ fun PlayerScreen(
             )
         }
         if (state.sheet == PlayerSheet.Transcript) {
-            val screenW = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
-            val videoBottom = top + StageTopGap + (screenW - StageSideGap * 2) / state.stageAspect
+            val videoBottom = top + StageTopGap + (stageWidth - StageSideGap * 2) / state.stageAspect
             TranscriptPanel(
                 state,
                 partialTop = videoBottom + 10.dp,
@@ -423,7 +462,6 @@ private fun VideoStage(
     sheetMotion: PlayerSheetMotion,
     dock: PlayerDock,
     progress: () -> Float,
-    fold: Animatable<Float, *>,
     onCollapse: () -> Unit,
     onFullscreen: () -> Unit,
     interactive: Boolean,
@@ -457,7 +495,7 @@ private fun VideoStage(
                     return Offset(0f, available.y)
                 }
                 val upward = available.y < 0f
-                val canFullscreen = upward && !state.fullscreen && !AudioOnly.enabled && dock.openFraction() >= 0.999f
+                val canFullscreen = upward && !state.fullscreen && dock.openFraction() >= 0.999f
                 if (canFullscreen || pulling.value && upward) {
                     pulling.value = true
                     val next = (pullUp.value - available.y).coerceAtLeast(0f)
@@ -495,23 +533,11 @@ private fun VideoStage(
             }
         }
     }
-    val folded = { fold.value * ramp(progress(), 0.8f) }
     val density = LocalDensity.current
     // Where the stage sits with the sheet fully open. Kept off snapshot state:
     // writing it every placement recomposed the player mid-drag.
     val stageAnchor = remember { StageAnchor() }
     val stage = Modifier
-        .graphicsLayer { clip = folded() > 0.001f }
-        .layout { measurable, constraints ->
-            val placeable = measurable.measure(constraints)
-            val k = 1f - folded()
-            layout(placeable.width, (placeable.height * k).roundToInt()) {
-                placeable.placeWithLayer(0, 0) {
-                    alpha = ramp(k, 0.1f, 0.85f)
-                    translationY = -placeable.height * 0.3f * (1f - k)
-                }
-            }
-        }
         .padding(horizontal = StageSideGap)
         .fillMaxWidth()
         .aspectRatio(aspect)
@@ -519,9 +545,11 @@ private fun VideoStage(
             val off = dock.offset() ?: 0f
             stageAnchor.origin = coords.positionOnScreen() - Offset(0f, off)
             if (!dock.attached) dock.attached = true
-            // Only a measurement from after the sheet has settled into place.
-            // The one before that sits a step low and flashes under the slot.
-            if (sheetMotion.placed && dock.miniArtOnScreen() != null) dock.notePose()
+            // A page open can pose before the mini player exists: it grows from
+            // the tapped thumbnail. A mini-player expand still waits for that slot,
+            // and for a measurement taken after the sheet has actually been placed.
+            val pageOpen = state.openingFromPage
+            if ((sheetMotion.placed || pageOpen) && (pageOpen || dock.miniArtOnScreen() != null)) dock.notePose()
         }
         .graphicsLayer {
             // Rubber band: up to 6% bigger, ever more slowly, growing down from the top edge.
@@ -532,95 +560,40 @@ private fun VideoStage(
         }
         .graphicsLayer {
             val p = progress()
-            val origin = stageAnchor.origin
-            val mini = dock.miniArtOnScreen()
-            val off = dock.offset() ?: 0f
-            // Hidden until a real dock pose exists. Drawing earlier paints the
-            // frame a step under the mini player's video.
             val parkedOpen = p >= 0.999f
-            alpha = if (dock.poseReady && (p > 0f || parkedOpen)) 1f else 0f
-            if (origin != null && mini != null && p < 0.999f) {
-                // Predict this frame's place from the anchor and the offset the
-                // finger is on now. The layout position is a frame behind a fast
-                // drag, which left the picture short of the thumbnail and then
-                // snapped it home.
-                val stageScreen = origin + Offset(0f, off)
-                val miniLocal = Rect(
-                    mini.left - stageScreen.x,
-                    mini.top - stageScreen.y,
-                    mini.right - stageScreen.x,
-                    mini.bottom - stageScreen.y,
-                )
-                val g = MorphGeometry(
-                    screen = size,
-                    miniCard = miniLocal,
-                    miniThumb = miniLocal,
-                    stage = Rect(Offset.Zero, size),
-                    miniRadius = with(density) { dock.miniArtCorner().toPx() },
-                    thumbRadius = with(density) { dock.miniArtCorner().toPx() },
-                    stageRadius = with(density) { StageRadius.toPx() },
-                )
-                val f = g.videoFrame(size, p)
+            val morph = stageMorph(state, dock, sheetMotion, stageAnchor, size, p, density)
+            // Hidden until a real pose exists. A tap shows the picture immediately,
+            // sitting on the thumbnail it came from.
+            alpha = if (dock.poseReady && (p > 0f || parkedOpen || dock.launchFrom != null)) 1f else 0f
+            if (morph != null) {
+                val f = morph.frame
                 scaleX = f.scale
                 scaleY = f.scale
                 transformOrigin = TransformOrigin(0f, 0f)
                 translationX = f.offset.x
                 translationY = f.offset.y
+            } else {
+                scaleX = 1f
+                scaleY = 1f
+                translationX = 0f
+                translationY = 0f
             }
             shadowElevation = 14.dp.toPx() * (1f - p).coerceIn(0f, 1f)
             ambientShadowColor = Color.Black.copy(alpha = 0.25f)
             spotShadowColor = Color.Black.copy(alpha = 0.35f)
         }
     val stageVideoClip = Modifier.graphicsLayer {
-        val p = progress()
-        val origin = stageAnchor.origin
-        val mini = dock.miniArtOnScreen()
-        val off = dock.offset() ?: 0f
-        if (origin == null || mini == null || p >= 0.999f) return@graphicsLayer
-        val stageScreen = origin + Offset(0f, off)
-        val miniLocal = Rect(
-            mini.left - stageScreen.x,
-            mini.top - stageScreen.y,
-            mini.right - stageScreen.x,
-            mini.bottom - stageScreen.y,
-        )
-        val g = MorphGeometry(
-            screen = size,
-            miniCard = miniLocal,
-            miniThumb = miniLocal,
-            stage = Rect(Offset.Zero, size),
-            miniRadius = with(density) { dock.miniArtCorner().toPx() },
-            thumbRadius = with(density) { dock.miniArtCorner().toPx() },
-            stageRadius = with(density) { StageRadius.toPx() },
-        )
-        val f = g.videoFrame(size, p)
-        val screenRadius = lerpF(g.thumbRadius, g.stageRadius, p.coerceIn(0f, 1f))
-        shape = RoundRectClip(f.window, screenRadius / f.scale.coerceAtLeast(0.01f))
+        val morph = stageMorph(state, dock, sheetMotion, stageAnchor, size, progress(), density) ?: run {
+            clip = false
+            return@graphicsLayer
+        }
+        val f = morph.frame
+        shape = RoundRectClip(f.window, morph.radiusPx / f.scale.coerceAtLeast(0.01f))
         clip = true
     }
     // Controls appear only once the video has nearly landed.
     val controlsAlpha = { ramp(progress(), 0.7f) }
-    // Audio only ↔ video in place (Derek, 2026-10-14): [cover] is how much of the audio stage
-    // lies over the video, [gather] its controls coming together.
-    val audio = AudioOnly.enabled
-    val cover = remember { Animatable(if (audio) 1f else 0f) }
-    val gather = remember { Animatable(if (audio) 1f else 0f) }
-    LaunchedEffect(audio) {
-        if (reduced) { cover.snapTo(if (audio) 1f else 0f); gather.snapTo(if (audio) 1f else 0f); return@LaunchedEffect }
-        if (audio) {
-            launch { cover.animateTo(1f, tween(AudioSwitchMs, easing = Motion.Emphasized)) }
-            delay(AudioSwitchMs / 3L)
-            gather.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 420f))
-        } else {
-            // Straight away (Derek: waiting for the video felt like the tap hadn't registered).
-            // Underneath, the video shows its thumbnail and a spinner until a fresh frame
-            // arrives ([PlayerState.videoStale]).
-            launch { gather.animateTo(0f, tween(AudioSwitchMs / 2, easing = Motion.Emphasized)) }
-            cover.animateTo(0f, tween(AudioSwitchMs, easing = Motion.Emphasized))
-        }
-    }
-    val showVideo by remember { derivedStateOf { !AudioOnly.enabled || cover.value < 1f } }
-    val showAudio by remember { derivedStateOf { AudioOnly.enabled || cover.value > 0f } }
+    val flying by remember { derivedStateOf { dock.poseReady && dock.openFraction() > 0f } }
     Box(
         Modifier
             .nestedScroll(sheetDrag)
@@ -628,35 +601,20 @@ private fun VideoStage(
             .then(stage),
     ) {
         Box(Modifier.fillMaxSize().then(stageVideoClip)) {
-            if (showVideo) {
-                val flying by remember { derivedStateOf { dock.poseReady && dock.openFraction() > 0f } }
-                VideoContent(
-                    state = state,
-                    fullscreen = false,
-                    interactive = interactive,
-                    onInactiveTap = { },
-                    onCollapse = onCollapse,
-                    onToggleFullscreen = onFullscreen,
-                    controlsAlpha = controlsAlpha,
-                    portraitEdgeScrub = true,
-                    liveSurface = flying,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = if (flying) 1f else 0f },
-                )
-            }
-            if (showAudio) {
-                AudioOnlyStage(
-                    state = state,
-                    interactive = interactive && audio,
-                    onInactiveTap = { },
-                    progress = progress,
-                    controlsAlpha = controlsAlpha,
-                    cover = { cover.value },
-                    gather = { gather.value },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
+            VideoContent(
+                state = state,
+                fullscreen = false,
+                interactive = interactive,
+                onInactiveTap = { },
+                onCollapse = onCollapse,
+                onToggleFullscreen = onFullscreen,
+                controlsAlpha = controlsAlpha,
+                portraitEdgeScrub = true,
+                liveSurface = flying,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = if (flying) 1f else 0f },
+            )
         }
         // Rides the morph with the video; offset up into the status-bar band.
         VideoTopStatusBlur(
@@ -674,10 +632,152 @@ private fun VideoStage(
 /** Fully-open screen position of the portrait stage. Not snapshot state — see [VideoStage]. */
 private class StageAnchor {
     var origin: Offset? = null
+    /** Picture on screen when a page-open starts moving toward the mini player. */
+    var handoff: Rect? = null
+    var handoffP = 1f
+    var handoffRadius = 0f
+    var snapped = false
 }
 
-/** Audio only ↔ video: how long the audio stage takes to cover (or uncover) the picture. */
-private const val AudioSwitchMs = 360
+private class StageMorph(val frame: VideoFrame, val radiusPx: Float)
+
+/**
+ * Where the portrait video is drawn for this frame.
+ *
+ * A tap grows it out of [PlayerDock.launchFrom]. Opening with no thumbnail lets
+ * the sheet carry the picture. Minimising, and expanding the mini player, uses
+ * the mini player's artwork. Letting go toward the mini player mid-open keeps
+ * the picture on the path it is already on.
+ */
+private fun stageMorph(
+    state: PlayerState,
+    dock: PlayerDock,
+    motion: PlayerSheetMotion,
+    anchor: StageAnchor,
+    size: Size,
+    p: Float,
+    density: Density,
+): StageMorph? {
+    val origin = anchor.origin ?: return null
+    val off = dock.offset() ?: 0f
+    val stageScreen = origin + Offset(0f, off)
+    val stageOnScreen = Rect(stageScreen, Size(size.width, size.height))
+    val card = dock.launchFrom
+    val cardRadius = dock.launchRadiusPx
+    val mini = dock.miniArtOnScreen()
+    val miniRadius = with(density) { dock.miniArtCorner().toPx() }
+    val fullRadius = with(density) { StageRadius.toPx() }
+    val fromPage = state.openingFromPage
+
+    if (!fromPage) {
+        anchor.handoff = null
+        anchor.snapped = false
+        if (p >= 0.999f) return null
+        val art = mini ?: return null
+        return morphTo(stageScreen, size, art, miniRadius, fullRadius, p)
+    }
+
+    if (motion.isClosing) {
+        if (!anchor.snapped) {
+            anchor.snapped = true
+            val picture = pictureNow(anchor, origin, stageOnScreen, size, card, cardRadius, fullRadius, p)
+            anchor.handoff = picture.first
+            anchor.handoffRadius = picture.second
+            anchor.handoffP = p.coerceAtLeast(0.001f)
+        }
+        val from = anchor.handoff ?: stageOnScreen
+        // The slot is laid out a frame after the dismiss starts. Hold the picture
+        // where it is until then, so it does not jump when the slot appears.
+        if (mini == null) {
+            anchor.handoffP = p.coerceAtLeast(0.001f)
+            return placeOn(stageScreen, size, from, anchor.handoffRadius)
+        }
+        val t = ((anchor.handoffP - p) / anchor.handoffP).coerceIn(0f, 1f)
+        return placeOn(stageScreen, size, lerpRect(from, mini, t), lerpF(anchor.handoffRadius, miniRadius, t))
+    }
+
+    anchor.snapped = false
+    anchor.handoff = null
+    if (p >= 0.999f) return null
+    if (card != null) {
+        // Straight line from the thumbnail to where the stage sits fully open.
+        // Lerping against the sheet's moving layout bows the picture downward, then back up.
+        val openStage = Rect(origin, Size(size.width, size.height))
+        val t = p.coerceIn(0f, 1f)
+        return placeOn(stageScreen, size, lerpRect(card, openStage, t), lerpF(cardRadius, fullRadius, t))
+    }
+    return null
+}
+
+/** The picture's on-screen rect before a dismiss starts, so the path does not jump. */
+private fun pictureNow(
+    anchor: StageAnchor,
+    origin: Offset,
+    stageOnScreen: Rect,
+    size: Size,
+    card: Rect?,
+    cardRadius: Float,
+    fullRadius: Float,
+    p: Float,
+): Pair<Rect, Float> {
+    val held = anchor.handoff
+    if (held != null) {
+        val t = ((p - anchor.handoffP) / (1f - anchor.handoffP).coerceAtLeast(0.001f)).coerceIn(0f, 1f)
+        return lerpRect(held, stageOnScreen, t) to lerpF(anchor.handoffRadius, fullRadius, t)
+    }
+    if (card != null) {
+        val openStage = Rect(origin, Size(size.width, size.height))
+        val t = p.coerceIn(0f, 1f)
+        return lerpRect(card, openStage, t) to lerpF(cardRadius, fullRadius, t)
+    }
+    return stageOnScreen to fullRadius
+}
+
+private fun morphTo(
+    stageScreen: Offset,
+    size: Size,
+    sourceScreen: Rect,
+    sourceRadius: Float,
+    stageRadius: Float,
+    p: Float,
+): StageMorph {
+    val local = Rect(
+        sourceScreen.left - stageScreen.x,
+        sourceScreen.top - stageScreen.y,
+        sourceScreen.right - stageScreen.x,
+        sourceScreen.bottom - stageScreen.y,
+    )
+    val geometry = MorphGeometry(
+        screen = size,
+        miniCard = local,
+        miniThumb = local,
+        stage = Rect(Offset.Zero, size),
+        miniRadius = sourceRadius,
+        thumbRadius = sourceRadius,
+        stageRadius = stageRadius,
+    )
+    return StageMorph(geometry.videoFrame(size, p), lerpF(sourceRadius, stageRadius, p.coerceIn(0f, 1f)))
+}
+
+/** Puts the picture exactly on [screenRect]. */
+private fun placeOn(stageScreen: Offset, size: Size, screenRect: Rect, radius: Float): StageMorph {
+    val local = Rect(
+        screenRect.left - stageScreen.x,
+        screenRect.top - stageScreen.y,
+        screenRect.right - stageScreen.x,
+        screenRect.bottom - stageScreen.y,
+    )
+    val geometry = MorphGeometry(
+        screen = size,
+        miniCard = local,
+        miniThumb = local,
+        stage = Rect(Offset.Zero, size),
+        miniRadius = radius,
+        thumbRadius = radius,
+        stageRadius = radius,
+    )
+    return StageMorph(geometry.videoFrame(size, 0f), radius)
+}
 
 /** How far a swipe up on the open video travels before it goes fullscreen on release. */
 private val FullscreenPull = 64.dp
@@ -967,7 +1067,7 @@ fun MiniPlayer(
                     else -> MiniHeight
                 },
             )
-            .then(if (gestures) Modifier.miniPlayerPullGestures(pull, onDismiss = state::close, onTogglePlay = state::togglePlay) else Modifier)
+            .then(if (gestures) Modifier.miniPlayerPullGestures(pull, onDismiss = state::close, onTogglePlay = state::togglePlay, playing = state.isPlaying, shape = shape) else Modifier)
             .pressable(pressedScale = 0.98f, onClick = onExpand)
             // Liquid glass already clips, and an extra clip layer around it
             // forces another offscreen buffer. That buffer is what the fold
@@ -1019,7 +1119,7 @@ fun MiniPlayer(
                         Thumbnail(item.thumbnail, Modifier.fillMaxSize().aspectFit(state.videoAspect), radius = 0)
                     }
                 }
-                if (showVideo && !AudioOnly.enabled) {
+                if (showVideo) {
                     Box(Modifier.fillMaxSize().aspectFit(state.stageAspect, cover = true)) {
                         LocalVideoSurface.current(Modifier.fillMaxSize().aspectFit(state.videoAspect).hideStaleVideo(state))
                     }

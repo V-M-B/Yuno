@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Headphones
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ClosedCaption
 import androidx.compose.material.icons.rounded.Fullscreen
@@ -40,6 +39,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroidSize
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -213,6 +213,7 @@ fun VideoContent(
     val currentInactiveTap by androidx.compose.runtime.rememberUpdatedState(onInactiveTap)
     fun toggleControls() { controlsVisible = !controlsVisible; touched() }
     fun seekStep(side: Int) {
+        if (state.live && !state.liveDvr) return
         val moved = state.seekBy(side * SeekStep.ms)
         burstSeconds += ((abs(moved) + 500) / 1000).toInt()
         burstTaps++
@@ -423,7 +424,13 @@ fun VideoContent(
                 ) {
                     // Switching videos: nothing of the last one, and not the next one's poster.
                     // Black until its own frame is ready.
-                    if (state.blankUntilFrame) {
+                    if (state.coverWithPoster) {
+                        Thumbnail(
+                            state.current?.thumbnail,
+                            Modifier.fillMaxSize(),
+                            radius = 0,
+                        )
+                    } else if (state.blankUntilFrame) {
                         Box(Modifier.fillMaxSize().background(Color.Black))
                     } else if (state.hidesStaleVideo || HeldFrame.image == null) {
                         // The captured frame sits under the live view. The poster is a
@@ -482,7 +489,7 @@ fun VideoContent(
 
         val enabled = controlsVisible && interactive
         // With the controls hidden, loading still shows: a small spinner in the middle.
-        if (!scrubbing && !controlsVisible && (state.isBuffering || state.hidesStaleVideo || state.blankUntilFrame || (state.loading && state.details == null))) {
+        if (!scrubbing && !controlsVisible && !state.openingFromPage && (state.isBuffering || state.hidesStaleVideo || state.blankUntilFrame || (state.loading && state.details == null))) {
             CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp, modifier = Modifier.align(Alignment.Center).size(36.dp))
         }
         // Waiting out a bot check (BotCheck): the spinner says why this is taking a while.
@@ -562,9 +569,6 @@ fun VideoContent(
                         OverlayTile(stringResource(R.string.video_loop), enabled, tool, filled = state.looping, onClick = { touched(); state.toggleLoop() }) { ink ->
                             Icon(Icons.Rounded.RepeatOne, null, tint = ink, modifier = Modifier.size(tool * 0.5f))
                         }
-                        OverlayTile(stringResource(R.string.video_audio_only), enabled, tool, filled = AudioOnly.enabled, onClick = { touched(); state.setAudioOnly(!AudioOnly.enabled) }) { ink ->
-                            Icon(Icons.Outlined.Headphones, null, tint = ink, modifier = Modifier.size(tool * 0.5f))
-                        }
                     }
                     val stickySpeed = PlaybackSpeed.remember && !PlaybackSpeed.isNormal(state.speed)
                     OverlayPill(
@@ -602,19 +606,20 @@ fun VideoContent(
                     }
                 }
                 val seek = if (fullscreen) 60.dp else 51.dp
+                val canSeek = enabled && (!state.live || state.liveDvr)
                 Row(
                     modifier = Modifier.align(Alignment.Center),
                     horizontalArrangement = Arrangement.spacedBy(if (fullscreen) 32.dp else 18.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    OverlaySeek(-1, enabled, seek) { touched(); state.seekBy(-SeekStep.ms) }
+                    OverlaySeek(-1, canSeek, seek) { touched(); state.seekBy(-SeekStep.ms) }
                     OverlayPlay(
                         playing = state.isPlaying,
                         buffering = state.isBuffering || (state.loading && state.details == null),
                         size = if (fullscreen) 78.dp else 66.dp,
                         enabled = enabled,
                     ) { touched(); state.togglePlay() }
-                    OverlaySeek(1, enabled, seek) { touched(); state.seekBy(SeekStep.ms) }
+                    OverlaySeek(1, canSeek, seek) { touched(); state.seekBy(SeekStep.ms) }
                 }
                 Column(
                     Modifier.align(Alignment.BottomStart).fillMaxWidth()
@@ -625,13 +630,22 @@ fun VideoContent(
                         ),
                 ) {
                     val shownMs = state.scrubPreviewMs ?: state.positionMs
+                    val lockedLive = state.live && !state.liveDvr
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                            Text(formatDuration(shownMs), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                            Text(
-                                " / " + formatDuration(state.durationMs),
-                                color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1,
-                            )
+                            if (lockedLive) {
+                                LiveChip(atEdge = true, enabled = false, onClick = {})
+                            } else {
+                                Text(formatDuration(shownMs), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                Text(
+                                    " / " + formatDuration(state.durationMs),
+                                    color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                                )
+                                if (state.live) {
+                                    Spacer(Modifier.width(10.dp))
+                                    LiveChip(state.durationMs - state.positionMs <= 20_000) { touched(); state.jumpToLiveEdge() }
+                                }
+                            }
                             state.chapterAt(shownMs)?.let {
                                 Text(
                                     " · $it", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.Bold,
@@ -686,12 +700,13 @@ fun VideoContent(
                     .height(EdgeScrubTouchPadAbove * 2)
                     .graphicsLayer { alpha = scrubFade }
             }
+            val lockedLive = state.live && !state.liveDvr
             Scrubber(
-                segments = segments,
-                positionMs = state.positionMs,
-                bufferedMs = state.bufferedMs,
-                durationMs = state.durationMs,
-                enabled = interactive,
+                segments = if (lockedLive) emptyList() else segments,
+                positionMs = if (lockedLive) 1L else state.positionMs,
+                bufferedMs = if (lockedLive) 1L else state.bufferedMs,
+                durationMs = if (lockedLive) 1L else state.durationMs,
+                enabled = interactive && !lockedLive,
                 active = scrubActive,
                 relativeDrag = true,
                 edgeToEdge = portraitEdgeScrub,
@@ -744,131 +759,15 @@ fun VideoContent(
     }
 }
 
-/**
- * The stage in audio only (Derek, 2026-10-13): no picture, just the playback controls, always
- * shown, on a tonal container the video's own shape. Every control sits exactly where the
- * video's overlay puts it (Derek, 2026-10-14): skips and play centred at the same sizes, the
- * times row and scrubber along the bottom, the skipped note at the top; only the look changes
- * (tonal buttons, primary play, thicker scrubber). The thumbnail sits underneath at the
- * stage's centred 16:9 window and shows through as it shrinks, so it lands as the mini-player,
- * which shows the thumbnail in audio only.
- *
- * Switching from or to video happens in place: [cover] fades the whole stage over the picture,
- * and [gather] brings the controls together (skips slide out from behind the play button,
- * the bottom row rises in), with a soft overshoot.
- */
-@Composable
-fun AudioOnlyStage(
-    state: PlayerState,
-    interactive: Boolean,
-    onInactiveTap: () -> Unit,
-    progress: () -> Float,
-    controlsAlpha: () -> Float,
-    modifier: Modifier = Modifier,
-    cover: () -> Float = { 1f },
-    gather: () -> Float = { 1f },
-) {
-    val c = MaterialTheme.colorScheme
-    val currentInteractive by androidx.compose.runtime.rememberUpdatedState(interactive)
-    val currentInactiveTap by androidx.compose.runtime.rememberUpdatedState(onInactiveTap)
-    // While collapsing the controls are off (their taps fall through): a tap re-expands.
-    Box(
-        modifier
-            .graphicsLayer { alpha = cover().coerceIn(0f, 1f) }
-            .pointerInput(Unit) { detectTapGestures { if (!currentInteractive) currentInactiveTap() } },
-    ) {
-        Box(Modifier.fillMaxSize().aspectFit(16f / 9f)) {
-            Thumbnail(state.current?.thumbnail, Modifier.fillMaxSize(), radius = 0)
-        }
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = ramp(progress(), 0.25f, 0.85f) }.background(c.surfaceContainer))
-        val error = state.error
-        if (error != null) {
-            ErrorPanel(error, state, onCollapse = {})
-            return@Box
-        }
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = controlsAlpha() * gather().coerceIn(0f, 1f) }) {
-            SkippedNote(state, Modifier.align(Alignment.TopCenter).padding(top = 12.dp))
-            // Same row as the video's: 48 dp skips, 66 dp play, 30 dp apart.
-            val gap = 30.dp
-            val skip = 48.dp
-            val play = 66.dp
-            Row(
-                modifier = Modifier.align(Alignment.Center),
-                horizontalArrangement = Arrangement.spacedBy(gap),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // Each skip starts tucked behind the play button and slides out to its place.
-                fun Modifier.slide(side: Int) = graphicsLayer {
-                    translationX = -side * (1f - gather()) * (gap + (play + skip) / 2).toPx()
-                }
-                Box(Modifier.slide(-1)) { TonalSkip(seekIcon(false), seekLabel(-1), interactive, skip) { state.seekBy(-SeekStep.ms) } }
-                Box(Modifier.graphicsLayer { val k = lerpF(0.6f, 1f, gather()); scaleX = k; scaleY = k }) {
-                    MorphPlayButton(
-                        playing = state.isPlaying,
-                        buffering = state.isBuffering || (state.loading && state.details == null),
-                        size = play,
-                        container = c.primary,
-                        content = c.onPrimary,
-                        enabled = interactive,
-                    ) { state.togglePlay() }
-                }
-                Box(Modifier.slide(1)) { TonalSkip(seekIcon(true), seekLabel(1), interactive, skip) { state.seekBy(SeekStep.ms) } }
-            }
-            // Same place and padding as the video's bottom bar (its row is the fullscreen button's 34 dp).
-            Column(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .padding(start = 14.dp, end = 8.dp, bottom = 6.dp)
-                    .graphicsLayer { translationY = (1f - gather()) * 16.dp.toPx() },
-            ) {
-                var scrubPreview by remember { mutableStateOf<Long?>(null) }
-                Row(Modifier.height(34.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(formatDuration(scrubPreview ?: state.positionMs), color = c.onSurface, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Text(
-                        " / " + formatDuration(state.durationMs),
-                        color = c.onSurfaceVariant, fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f),
-                    )
-                    state.askSegment?.let { ask -> SkipSegmentPill(ask, enabled = interactive) { state.skipSegment(ask) } }
-                }
-                Scrubber(
-                    segments = if (SponsorBlock.enabled) state.segments.filter { it.action != SponsorBlock.Action.Off } else emptyList(),
-                    positionMs = state.positionMs,
-                    bufferedMs = state.bufferedMs,
-                    durationMs = state.durationMs,
-                    enabled = interactive,
-                    onPreview = { scrubPreview = it },
-                    onSeek = { scrubPreview = null; state.seekTo(it) },
-                    track = c.surfaceContainerHighest,
-                    buffered = c.primary.copy(alpha = 0.3f),
-                    played = c.primary,
-                    trackHeight = 6.dp,
-                    knob = 8.dp,
-                    knobDragging = 10.dp,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TonalSkip(icon: ImageVector, description: String, enabled: Boolean, size: Dp, onClick: () -> Unit) {
-    val c = MaterialTheme.colorScheme
-    Box(
-        Modifier.size(size).pressable(enabled = enabled, onClick = onClick).clip(CircleShape).background(c.surfaceContainerHigh),
-        contentAlignment = Alignment.Center,
-    ) { Icon(icon, description, tint = c.onSurface, modifier = Modifier.size(size * 0.62f)) }
-}
 
 /**
- * Hides the picture while the shared surface still holds the frame from before audio only
+ * Hides the picture while the shared surface still holds an old frame
  * after video is turned back on ([PlayerState.hidesStaleVideo]); the thumbnail underneath shows
  * instead, and the fresh frame fades in.
  */
 @Composable
 fun Modifier.hideStaleVideo(state: PlayerState): Modifier {
-    val hide = state.hidesStaleVideo || state.blankUntilFrame
+    val hide = state.hidesStaleVideo || state.blankUntilFrame || state.coverWithPoster
     val alpha by animateFloatAsState(
         targetValue = if (hide) 0f else 1f,
         animationSpec = if (hide || rememberReducedMotion()) tween(0) else tween(220, easing = Motion.Emphasized),
@@ -1014,6 +913,20 @@ fun QualitySheet(state: PlayerState, onDismiss: () -> Unit) {
         }
         details.qualities.forEach { h ->
             SheetRow("${h}p", qualityTag(h), chosen == h) { state.setQuality(h); onDismiss() }
+        }
+        if (details.audioTracks.isNotEmpty()) {
+            // A dubbed video: the languages its sound comes in.
+            Text(
+                stringResource(R.string.video_audio_language),
+                fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 21.sp,
+                modifier = Modifier.padding(start = PageGutter, end = PageGutter, top = 18.dp, bottom = 8.dp),
+            )
+            val playing = StreamSelection.playingLanguage(details.audioTracks)
+            details.audioTracks.forEach { track ->
+                SheetRow(track.name, if (track.original) stringResource(R.string.video_audio_original) else null, playing == track.language) {
+                    state.setAudioLanguage(track); onDismiss()
+                }
+            }
         }
         Spacer(Modifier.height(28.dp))
         }
@@ -1216,6 +1129,22 @@ private fun OverlayTile(
 }
 
 /** A worded control on the video (speed, quality): a capsule [height] tall, otherwise [OverlayTile]'s look. */
+/** MeeTube's live chip: YouTube red, full at the edge, dimmed while a rewindable stream is behind it. */
+@Composable
+private fun LiveChip(atEdge: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+    Text(
+        stringResource(R.string.player_live),
+        color = Color.White.copy(alpha = if (atEdge) 1f else 0.55f),
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xE6CC0000))
+            .pressable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 7.dp, vertical = 2.dp),
+    )
+}
+
 @Composable
 private fun OverlayPill(
     label: String,
@@ -1301,7 +1230,7 @@ private fun OverlayPlay(playing: Boolean, buffering: Boolean, size: Dp, enabled:
 }
 
 /**
- * Hides the picture while the shared surface still holds the frame from before audio only
+ * Hides the picture while the shared surface still holds an old frame
  * after video is turned back on ([PlayerState.hidesStaleVideo]); the thumbnail underneath shows
  * instead, and the fresh frame fades in.
  */
@@ -1373,6 +1302,28 @@ private fun BoxScope.QualityDrop(state: PlayerState, open: Boolean, anchor: Rect
                 scope.launch { delay(420); currentClose() }
             }
         }
+        if (details.audioTracks.isNotEmpty()) {
+            // A dubbed video: the languages its sound comes in, under the heights.
+            Text(
+                stringResource(R.string.video_drop_audio),
+                color = Color.White.copy(alpha = 0.55f), fontSize = 10.5.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.6.sp,
+                maxLines = 1,
+                modifier = Modifier.height(DropHeaderHeight).padding(start = 12.dp, top = 6.dp),
+            )
+            var language by remember { mutableStateOf(StreamSelection.playingLanguage(details.audioTracks)) }
+            details.audioTracks.forEach { track ->
+                DropRow(
+                    title = track.name,
+                    tag = if (track.original) stringResource(R.string.video_audio_original) else null,
+                    selected = language == track.language,
+                ) {
+                    if (!open) return@DropRow
+                    language = track.language
+                    state.setAudioLanguage(track)
+                    scope.launch { delay(420); currentClose() }
+                }
+            }
+        }
     }
 }
 
@@ -1393,7 +1344,13 @@ private fun BoxScope.SpeedDrop(state: PlayerState, open: Boolean, anchor: Rect, 
         (SpeedPresets + listOfNotNull(custom)).sorted()
     }
     fun same(a: Float, b: Float) = abs(a - b) < PlaybackSpeed.STEP / 2
-    OverlayDrop(open, shown, anchor, boxHeight, stringResource(R.string.video_drop_speed), openAt = { rows.indexOfFirst { same(it, picked) } }, onClose = onClose) { scope ->
+    OverlayDrop(open, shown, anchor, boxHeight, stringResource(R.string.video_drop_speed), openAt = { 1 + rows.indexOfFirst { same(it, picked) } }, onClose = onClose) { scope ->
+        // Any speed in between the presets: slide along the line, in 0.05× steps.
+        DropSpeedSlider(
+            speed = picked,
+            onChange = { if (open) { picked = it; state.previewSpeed(it) } },
+            onDone = { if (open) state.commitSpeed(it) },
+        )
         rows.forEach { s ->
             DropRow(
                 title = PlaybackSpeed.label(s) + "×",
@@ -1412,6 +1369,60 @@ private fun BoxScope.SpeedDrop(state: PlayerState, open: Boolean, anchor: Rect, 
         }
         Spacer(Modifier.height(5.dp))
         DropRow(title = stringResource(R.string.video_speed_every_video), tag = null, selected = PlaybackSpeed.remember) { if (open) state.toggleRememberSpeed() }
+    }
+}
+
+/**
+ * The speed card's slider: the speed on the left, a line from 0.5× to 3× beside it. Touching or sliding along the
+ * line sets the speed live, a 0.05× step at a time with a tick, like the portrait ruler.
+ */
+@Composable
+private fun DropSpeedSlider(speed: Float, onChange: (Float) -> Unit, onDone: (Float) -> Unit) {
+    val view = LocalView.current
+    val change by rememberUpdatedState(onChange)
+    val done by rememberUpdatedState(onDone)
+    Row(
+        Modifier.padding(bottom = DropRowGap).fillMaxWidth().height(DropRowHeight).padding(start = 12.dp, end = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            PlaybackSpeed.label(speed) + "×",
+            color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1,
+            modifier = Modifier.width(50.dp),
+        )
+        Canvas(
+            Modifier.weight(1f).fillMaxHeight().pointerInput(Unit) {
+                val pad = 8.dp.toPx()
+                fun at(x: Float): Float {
+                    val t = ((x - pad) / (size.width - pad * 2).coerceAtLeast(1f)).coerceIn(0f, 1f)
+                    return PlaybackSpeed.snap(PlaybackSpeed.MIN + t * (PlaybackSpeed.MAX - PlaybackSpeed.MIN))
+                }
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    var last = at(down.position.x)
+                    change(last)
+                    horizontalDrag(down.id) { moved ->
+                        val next = at(moved.position.x)
+                        if (next != last) {
+                            last = next
+                            view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                            change(next)
+                        }
+                        moved.consume()
+                    }
+                    done(last)
+                }
+            },
+        ) {
+            val pad = 8.dp.toPx()
+            val y = size.height / 2f
+            val t = ((speed - PlaybackSpeed.MIN) / (PlaybackSpeed.MAX - PlaybackSpeed.MIN)).coerceIn(0f, 1f)
+            val x = pad + (size.width - pad * 2) * t
+            drawLine(Color.White.copy(alpha = 0.28f), Offset(pad, y), Offset(size.width - pad, y), 4.dp.toPx(), androidx.compose.ui.graphics.StrokeCap.Round)
+            drawLine(Color.White, Offset(pad, y), Offset(x, y), 4.dp.toPx(), androidx.compose.ui.graphics.StrokeCap.Round)
+            drawCircle(Color.White, 7.dp.toPx(), Offset(x, y))
+        }
     }
 }
 
