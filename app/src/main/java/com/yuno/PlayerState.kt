@@ -785,6 +785,19 @@ class PlayerState(private val scope: CoroutineScope) {
         details = details?.copy(quality = StreamSelection.pick(info).playedHeight?.let { "${it}p" })
     }
 
+    /** Plays the sound in [track]'s language from here on (the original's row clears the choice), without losing the place. */
+    fun setAudioLanguage(track: AudioLanguageTrack) {
+        val language = track.language.takeUnless { track.original }
+        if (language == AudioLanguage.preferred && StreamSelection.playingLanguage(details?.audioTracks.orEmpty()) == track.language) return
+        AudioLanguage.choose(language)
+        val player = controller ?: return
+        val item = details?.item ?: current ?: return
+        val position = player.currentPosition
+        val playWhenReady = player.playWhenReady
+        replaceCurrent(player, item, position)
+        player.playWhenReady = playWhenReady
+    }
+
     /** Fresh links too: the cached ones may be exactly what YouTube refused. */
     fun retry() = current?.let { item -> StreamCache.invalidate(item.id); current = null; open(item) }
 

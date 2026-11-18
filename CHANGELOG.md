@@ -10,6 +10,15 @@ changes something people see or feel (faster, fewer errors); then say that.
 
 ## Unreleased
 
+### New
+- **Pick the audio language.** A dubbed video lists its languages under Quality. Your pick is kept for every video that has that language.
+- **Any speed in fullscreen.** The speed card has a slider above the presets, in 0.05× steps.
+- **More videos beside the player** on a tablet or an open foldable held sideways, as in the YouTube app.
+
+### Improved
+- The brightness and volume level shows in the middle of the video, so your hand never covers it.
+- Settings pages fade out under the status bar as they scroll, like Home and the other tabs.
+
 ## 1.1.1
 
 ![Yuno](https://github.com/danielkanan/Yuno/raw/main/docs/banner.png?v=2)

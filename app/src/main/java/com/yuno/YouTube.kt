@@ -95,7 +95,13 @@ data class VideoDetails(
     val captions: List<CaptionTrack> = emptyList(),
     /** A stream that is on right now. A finished livestream is an ordinary video. */
     val live: Boolean = false,
+    /** The languages this video's sound comes in, the original first; empty when there is only one. */
+    val audioTracks: List<AudioLanguageTrack> = emptyList(),
 )
+
+/** One language of a video's sound: [language] is its code ("en", "hi"), [name] what the picker shows. */
+@Immutable
+data class AudioLanguageTrack(val language: String, val name: String, val original: Boolean)
 
 @Immutable
 data class Chapter(val startMs: Long, val title: String)
@@ -263,6 +269,7 @@ object YouTube {
             live = live != null,
             quality = picked.playedHeight?.let { "${it}p" },
             qualities = StreamSelection.heights(info),
+            audioTracks = StreamSelection.audioTracks(info),
             aspect = (if (picked.usesSeparate) picked.video else picked.muxed)
                 ?.takeIf { it.width > 0 && it.height > 0 }?.let { it.width.toFloat() / it.height },
             chapters = info.streamSegments.orEmpty()
@@ -566,6 +573,34 @@ object QualityPreference {
     private fun onMobileData(): Boolean = connectivity?.isActiveNetworkMetered == true
 }
 
+/**
+ * The language to hear a video in when it has more than one (a dubbed video), or null for its
+ * original. Kept across launches and videos: pick Hindi once and every video that has Hindi plays
+ * in it; the rest play their original. Read by the playback service, like [QualityPreference].
+ */
+object AudioLanguage {
+    private const val KEY = "audio_language"
+    private var prefs: SharedPreferences? = null
+
+    var preferred by androidx.compose.runtime.mutableStateOf<String?>(null)
+        private set
+
+    fun init(context: Context) {
+        prefs = context.getSharedPreferences("playback", Context.MODE_PRIVATE)
+        preferred = prefs?.getString(KEY, null)?.takeIf { it.isNotBlank() }
+    }
+
+    fun choose(language: String?) {
+        preferred = language
+        prefs?.edit()?.apply { if (language == null) remove(KEY) else putString(KEY, language) }?.apply()
+    }
+}
+
+/** "en" for an English track, from its locale or its id ("en-US.4"); null when YouTube names no language. */
+internal fun AudioStream.languageKey(): String? =
+    audioLocale?.language?.takeIf { it.isNotBlank() }
+        ?: audioTrackId?.substringBefore('.')?.substringBefore('-')?.takeIf { it.isNotBlank() }
+
 /** Standard rungs shown in the quality sheet (matches YouTube's labels). */
 val QUALITY_LADDER = intArrayOf(144, 240, 360, 480, 720, 1080, 1440, 2160, 4320)
 
@@ -618,10 +653,19 @@ object StreamSelection {
         // The original language is preferred, but ANY audio track beats none: with no
         // accepted audio the player fell back to the 360p combined stream while the label
         // still said 1080p (the blurry-video bug, 2026-10-04).
+        // A chosen language (AudioLanguage) comes first when this video has it.
+        val language = AudioLanguage.preferred
         val audio = info.audioStreams
             .filter { it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
             .sortedWith(
-                compareBy<AudioStream> { if (it.audioTrackType == null || it.audioTrackType == AudioTrackType.ORIGINAL) 0 else 1 }
+                compareBy<AudioStream> { if (language != null && it.languageKey() == language) 0 else 1 }
+                    .thenBy {
+                        when (it.audioTrackType) {
+                            null, AudioTrackType.ORIGINAL -> 0
+                            AudioTrackType.DESCRIPTIVE -> 2
+                            else -> 1
+                        }
+                    }
                     .thenBy { if (it.format == MediaFormat.M4A) 0 else 1 }
                     .thenByDescending { it.averageBitrate },
             )
@@ -645,6 +689,30 @@ object StreamSelection {
             .map { (_, sameHeight) -> sameHeight.maxBy { it.fps * 100_000L + it.bitrate } }
             .sortedBy { it.height }
     }
+
+    /** The languages on offer, the original first; empty unless there are at least two. */
+    fun audioTracks(info: StreamInfo): List<AudioLanguageTrack> {
+        val tracks = info.audioStreams
+            .filter { it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.audioTrackType != AudioTrackType.DESCRIPTIVE }
+            .mapNotNull { stream -> stream.languageKey()?.let { it to stream } }
+            .groupBy({ it.first }, { it.second })
+            .map { (language, streams) ->
+                val locale = streams.firstNotNullOfOrNull { it.audioLocale }
+                AudioLanguageTrack(
+                    language = language,
+                    name = locale?.getDisplayLanguage(java.util.Locale.getDefault())?.takeIf { it.isNotBlank() }?.replaceFirstChar { it.titlecase() }
+                        ?: streams.firstNotNullOfOrNull { it.audioTrackName?.takeIf { n -> n.isNotBlank() } }
+                        ?: language,
+                    original = streams.any { it.audioTrackType == AudioTrackType.ORIGINAL },
+                )
+            }
+            .sortedWith(compareBy<AudioLanguageTrack> { !it.original }.thenBy { it.name })
+        return if (tracks.size > 1) tracks else emptyList()
+    }
+
+    /** The language playing: the chosen one when this video has it, else the original. */
+    fun playingLanguage(tracks: List<AudioLanguageTrack>): String? =
+        (tracks.firstOrNull { it.language == AudioLanguage.preferred } ?: tracks.firstOrNull { it.original } ?: tracks.firstOrNull())?.language
 
     fun heights(info: StreamInfo): List<Int> = info.videoOnlyStreams
         .filter { it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.height > 0 }

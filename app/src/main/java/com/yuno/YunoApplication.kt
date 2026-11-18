@@ -34,6 +34,7 @@ class YunoApplication : Application(), ImageLoaderFactory {
         LiquidGlassSetting.init(this)
         Onboarding.init(this)
         QualityPreference.init(this)
+        AudioLanguage.init(this)
         PlaybackSpeed.init(this)
         Autoplay.init(this)
         Incognito.init(this)

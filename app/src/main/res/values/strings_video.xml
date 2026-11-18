@@ -43,6 +43,12 @@
     <string name="video_drop_captions">CAPTIONS</string>
     <string name="video_drop_quality">QUALITY</string>
     <string name="video_drop_speed">SPEED</string>
+    <!-- Header over the audio languages of a dubbed video, in the fullscreen quality card. -->
+    <string name="video_drop_audio">AUDIO</string>
+    <!-- Title over the audio languages of a dubbed video, in the quality sheet. -->
+    <string name="video_audio_language">Audio language</string>
+    <!-- Tag beside the language a video was made in. -->
+    <string name="video_audio_original">Original</string>
 
     <!-- Captions card: row that turns captions off. -->
     <string name="video_captions_off">Off</string>

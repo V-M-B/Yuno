@@ -111,6 +111,8 @@ private const val StatusBlackFromUp = 0.25f
 /** Morph progress by which the status bar over the video is fully black. */
 private const val StatusBlackEnd = 0.9f
 internal val StageSideGap = 0.dp
+/** Window width (dp) from which a sideways player lists "More videos" beside the video. */
+private const val SideListMinWindow = 840
 internal val StageRadius = 0.dp
 internal val MiniHeight = 70.dp
 /** Expanded liquid-glass accessory — horizontal insets match on both sides. */
@@ -193,8 +195,16 @@ fun PlayerScreen(
         ramp(p, StatusBlackFromUp, StatusBlackEnd)
     }
     val statusBarPx = with(LocalDensity.current) { top.roundToPx() }
+    // A wide window held sideways (a tablet, an open foldable): "More videos" gets its own column
+    // beside the video, as in the YouTube app, instead of sitting under the details.
+    val config = androidx.compose.ui.platform.LocalConfiguration.current
+    val sideWidth = if (config.screenWidthDp >= SideListMinWindow && config.screenWidthDp > config.screenHeightDp) {
+        (config.screenWidthDp.dp * 0.3f).coerceIn(320.dp, 420.dp)
+    } else 0.dp
+    val twoPane = sideWidth > 0.dp
+    val stageWidth = config.screenWidthDp.dp - sideWidth
     val stageHeightPx = with(LocalDensity.current) {
-        (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp.toPx() / state.stageAspect.coerceAtLeast(0.5f)).roundToInt()
+        (stageWidth.toPx() / state.stageAspect.coerceAtLeast(0.5f)).roundToInt()
     }
     BindVideoTopPoster(item.id, item.thumbnail, statusBarPx, stageHeightPx)
     LaunchedEffect(Unit) {
@@ -233,7 +243,9 @@ fun PlayerScreen(
                 .playerPageFade { dock.pageAlpha(sheetMotion.holding) }
                 .padding(bottom = bottomClearance + 8.dp),
         )
-        Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxSize()) {
+        // Above the side column: the video crosses it on its way to and from the mini player.
+        Column(Modifier.weight(1f).fillMaxHeight().zIndex(1f)) {
             Spacer(Modifier.height(top + StageTopGap))
             Box(Modifier.zIndex(2f).onGloballyPositioned {
                 if (dock.offset() != null) dock.attached = true
@@ -342,7 +354,9 @@ fun PlayerScreen(
                     }
                 }
                 val related = details?.related.orEmpty()
-                if (related.isNotEmpty()) {
+                if (twoPane) {
+                    // In the side column.
+                } else if (related.isNotEmpty()) {
                     item(key = "moreTitle") { SectionTitle("More videos") }
                     items(related, key = { "rel-" + it.id }) { video ->
                         Box(Modifier.padding(horizontal = PageGutter)) { VideoRow(video, onClick = { onOpen(video) }) }
@@ -353,6 +367,26 @@ fun PlayerScreen(
                     }
                 }
             }
+        }
+        if (twoPane) {
+            val related = details?.related.orEmpty()
+            // A new video starts its list at the top.
+            val sideList = remember(item.id) { androidx.compose.foundation.lazy.LazyListState() }
+            LazyColumn(
+                state = sideList,
+                modifier = Modifier
+                    .width(sideWidth)
+                    .fillMaxHeight()
+                    .playerPageFade { dock.pageAlpha(sheetMotion.holding) },
+                contentPadding = PaddingValues(top = top + StageTopGap + 12.dp, end = PageGutter, bottom = bottomClearance + PageGutter),
+            ) {
+                if (related.isNotEmpty()) {
+                    items(related, key = { "rel-" + it.id }) { video -> VideoCard(video, onClick = { onOpen(video) }) }
+                } else if (state.loading) {
+                    item(key = "loading") { FeedSkeletons(3) }
+                }
+            }
+        }
         }
         // The page's bottom vignette, as on the tabs: the details dissolve behind the nav
         // pill instead of running hard into it. Drawn only, never touchable.
@@ -371,8 +405,7 @@ fun PlayerScreen(
 
         // Comments open as a panel whose top sits just under the video.
         if (state.sheet == PlayerSheet.LiveChat) {
-            val screenW = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
-            val videoBottom = top + StageTopGap + (screenW - StageSideGap * 2) / state.stageAspect
+            val videoBottom = top + StageTopGap + (stageWidth - StageSideGap * 2) / state.stageAspect
             LiveChatPanel(
                 state.liveChat,
                 channelId = details?.item?.channelId() ?: item.channelId(),
@@ -381,8 +414,7 @@ fun PlayerScreen(
             )
         }
         if (state.sheet == PlayerSheet.Comments) {
-            val screenW = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
-            val videoBottom = top + StageTopGap + (screenW - StageSideGap * 2) / state.stageAspect
+            val videoBottom = top + StageTopGap + (stageWidth - StageSideGap * 2) / state.stageAspect
             CommentsPanel(
                 state.comments,
                 partialTop = videoBottom + 10.dp,
@@ -390,8 +422,7 @@ fun PlayerScreen(
             )
         }
         if (state.sheet == PlayerSheet.Transcript) {
-            val screenW = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
-            val videoBottom = top + StageTopGap + (screenW - StageSideGap * 2) / state.stageAspect
+            val videoBottom = top + StageTopGap + (stageWidth - StageSideGap * 2) / state.stageAspect
             TranscriptPanel(
                 state,
                 partialTop = videoBottom + 10.dp,
