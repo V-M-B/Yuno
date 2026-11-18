@@ -10,6 +10,8 @@ changes something people see or feel (faster, fewer errors); then say that.
 
 ## Unreleased
 
+## 1.1.2
+
 ### New
 - **Pick the audio language.** A dubbed video lists its languages under Quality. Your pick is kept for every video that has that language.
 - **Any speed in fullscreen.** The speed card has a slider above the presets, in 0.05× steps.
