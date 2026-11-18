@@ -14,10 +14,14 @@ changes something people see or feel (faster, fewer errors); then say that.
 - **Pick the audio language.** A dubbed video lists its languages under Quality. Your pick is kept for every video that has that language.
 - **Any speed in fullscreen.** The speed card has a slider above the presets, in 0.05× steps.
 - **More videos beside the player** on a tablet or an open foldable held sideways, as in the YouTube app.
+- Everything from Yuno 1.1.0 and 1.1.1: channel pages with tabs, categories along the top of Home, the new search with filters, playlist pages in the colour of their cover, livestreams with chat, sharper thumbnails, and videos that open from the thumbnail you tapped.
 
 ### Improved
 - The brightness and volume level shows at the top of the video, in the middle, so your hand never covers it.
 - Settings pages fade out under the status bar as they scroll, like Home and the other tabs.
+
+### Miscellaneous
+- Audio only is gone, and playlists no longer have the sort chips or the Videos / Shorts filter. Both follow the main Yuno app.
 
 ## 1.1.1
 
