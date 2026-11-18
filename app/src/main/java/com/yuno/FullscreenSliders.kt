@@ -244,8 +244,9 @@ fun Modifier.fullscreenGestures(sliders: FullscreenSliders, onPull: (Float) -> U
 }
 
 /**
- * The level pill: a tall glass capsule filling from the bottom, its icon underneath. In the middle of the
- * video for both gestures, so the hand making the swipe never covers it and it sits in one place.
+ * The level pill: a glass capsule with the icon and a line filling from the left. At the top of the video,
+ * in the middle, for both gestures: the hand making the swipe never covers it, it sits in one place, and it
+ * stays clear of the play and seek buttons.
  */
 @Composable
 fun BoxScope.SliderLevel(sliders: FullscreenSliders) {
@@ -273,24 +274,27 @@ fun BoxScope.SliderLevel(sliders: FullscreenSliders) {
             else -> SfIcons.VolumeUp
         }
     }
-    Column(
+    androidx.compose.foundation.layout.Row(
         Modifier
-            .align(Alignment.Center)
+            .align(Alignment.TopCenter)
+            .padding(top = 20.dp)
             .graphicsLayer { this.alpha = alpha }
             .clip(CircleShape)
             .background(Color.Black.copy(alpha = 0.55f))
-            .padding(horizontal = 10.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(10.dp))
         Box(
-            Modifier.width(6.dp).height(132.dp).drawBehind {
-                val r = androidx.compose.ui.geometry.CornerRadius(size.width / 2f)
+            Modifier.width(132.dp).height(6.dp).drawBehind {
+                val r = androidx.compose.ui.geometry.CornerRadius(size.height / 2f)
                 drawRoundRect(Color.White.copy(alpha = 0.28f), cornerRadius = r)
-                val h = size.height * level
-                drawRoundRect(Color.White, topLeft = Offset(0f, size.height - h), size = Size(size.width, h), cornerRadius = r)
+                // Fills from the reading side: the left, or the right in a right-to-left language.
+                val w = size.width * level
+                val x = if (layoutDirection == androidx.compose.ui.unit.LayoutDirection.Rtl) size.width - w else 0f
+                drawRoundRect(Color.White, topLeft = Offset(x, 0f), size = Size(w, size.height), cornerRadius = r)
             },
         )
-        Spacer(Modifier.height(10.dp))
-        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
     }
 }
