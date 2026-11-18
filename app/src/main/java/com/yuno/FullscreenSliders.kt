@@ -243,7 +243,10 @@ fun Modifier.fullscreenGestures(sliders: FullscreenSliders, onPull: (Float) -> U
     }
 }
 
-/** The level pill on the gesture's side: a tall glass capsule filling from the bottom, its icon underneath. */
+/**
+ * The level pill: a tall glass capsule filling from the bottom, its icon underneath. In the middle of the
+ * video for both gestures, so the hand making the swipe never covers it and it sits in one place.
+ */
 @Composable
 fun BoxScope.SliderLevel(sliders: FullscreenSliders) {
     val reduced = rememberReducedMotion()
@@ -272,9 +275,7 @@ fun BoxScope.SliderLevel(sliders: FullscreenSliders) {
     }
     Column(
         Modifier
-            .align(if (side == FullscreenSliders.Kind.Brightness) Alignment.CenterStart else Alignment.CenterEnd)
-            .windowInsetsPadding(WindowInsets.displayCutout)
-            .padding(horizontal = 40.dp)
+            .align(Alignment.Center)
             .graphicsLayer { this.alpha = alpha }
             .clip(CircleShape)
             .background(Color.Black.copy(alpha = 0.55f))
