@@ -12,9 +12,9 @@ android {
         applicationId = "com.yuno"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.0.4"
-        buildConfigField("String", "GITHUB_RELEASES_REPO", "\"V-M-B/Yuno\"")
+        versionCode = 3
+        versionName = "1.1.1"
+        buildConfigField("String", "GITHUB_RELEASES_REPO", "\"danielkanan/Yuno\"")
     }
 
     buildTypes {

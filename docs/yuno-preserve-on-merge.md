@@ -5,7 +5,7 @@ Edit when you want something new protected. Cursor rule: `.cursor/rules/yuno-ups
 ## Product & branding
 
 - App name **Yuno**; package **`com.yuno`**.
-- Self-update: users always get APKs from **`V-M-B/Yuno`** (`GITHUB_RELEASES_REPO` in `app/build.gradle.kts`, read by `Updater.kt`) — merge upstream `Updater.kt` fixes freely, never point releases at Skipii.
+- Self-update: users always get APKs from **`danielkanan/Yuno`** (`GITHUB_RELEASES_REPO` in `app/build.gradle.kts`, read by `Updater.kt`) — merge upstream `Updater.kt` fixes freely, never point releases at Skipii.
 - No upload/Create; tabs Home · Subscriptions · Shorts · Search · Library (Shorts optional).
 
 ## Look & feel (keep on merge)
